@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,12 +25,13 @@ import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Bones;
 import com.shatteredpixel.shatteredpixeldungeon.Challenges;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+import com.shatteredpixel.shatteredpixeldungeon.Statistics;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob;
 import com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Electricity;
-import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.DM300;
+import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Pylon;
 import com.shatteredpixel.shatteredpixeldungeon.effects.BlobEmitter;
 import com.shatteredpixel.shatteredpixeldungeon.effects.CellEmitter;
@@ -39,15 +40,17 @@ import com.shatteredpixel.shatteredpixeldungeon.effects.particles.BlastParticle;
 import com.shatteredpixel.shatteredpixeldungeon.effects.particles.SparkParticle;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+import com.shatteredpixel.shatteredpixeldungeon.levels.features.LevelTransition;
 import com.shatteredpixel.shatteredpixeldungeon.levels.painters.CavesPainter;
 import com.shatteredpixel.shatteredpixeldungeon.levels.painters.Painter;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
+import com.shatteredpixel.shatteredpixeldungeon.sprites.PylonSprite;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.CustomTilemap;
-import com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap;
+import com.shatteredpixel.shatteredpixeldungeon.ui.BossHealthBar;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
-import com.watabou.noosa.Camera;
 import com.watabou.noosa.Game;
 import com.watabou.noosa.Group;
 import com.watabou.noosa.Image;
@@ -57,6 +60,7 @@ import com.watabou.noosa.audio.Sample;
 import com.watabou.noosa.particles.Emitter;
 import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
+import com.watabou.utils.GameMath;
 import com.watabou.utils.PathFinder;
 import com.watabou.utils.Point;
 import com.watabou.utils.Random;
@@ -74,15 +78,16 @@ public class CavesBossLevel extends Level {
 	@Override
 	public void playLevelMusic() {
 		if (locked){
-			Music.INSTANCE.play(Assets.Music.CAVES_BOSS, true);
+			if (BossHealthBar.isBleeding()){
+				Music.INSTANCE.play(Assets.Music.CAVES_BOSS_FINALE, true);
+			} else {
+				Music.INSTANCE.play(Assets.Music.CAVES_BOSS, true);
+			}
 		//if wall isn't broken
-		} else if (map[14 + 13*width()] == Terrain.SIGN){
+		} else if (map[14 + 13*width()] == Terrain.CUSTOM_DECO){
 			Music.INSTANCE.end();
 		} else {
-			Music.INSTANCE.playTracks(
-					new String[]{Assets.Music.CAVES_1, Assets.Music.CAVES_2, Assets.Music.CAVES_2},
-					new float[]{1, 1, 0.5f},
-					false);
+			Music.INSTANCE.playTracks(CavesLevel.CAVES_TRACK_LIST, CavesLevel.CAVES_TRACK_CHANCES, false);
 		}
 	}
 
@@ -99,6 +104,7 @@ public class CavesBossLevel extends Level {
 	private static int WIDTH = 33;
 	private static int HEIGHT = 42;
 
+	public static Rect diggableArea = new Rect(2, 11, 31, 40);
 	public static Rect mainArena = new Rect(5, 14, 28, 37);
 	public static Rect gate = new Rect(14, 13, 19, 14);
 	public static int[] pylonPositions = new int[]{ 4 + 13*WIDTH, 28 + 13*WIDTH, 4 + 37*WIDTH, 28 + 37*WIDTH };
@@ -110,8 +116,7 @@ public class CavesBossLevel extends Level {
 
 		setSize(WIDTH, HEIGHT);
 
-		//These signs are visually overridden with custom tile visuals
-		Painter.fill(this, gate, Terrain.SIGN);
+		Painter.fill(this, gate, Terrain.CUSTOM_DECO);
 
 		//set up main boss arena
 		Painter.fillEllipse(this, mainArena, Terrain.EMPTY);
@@ -148,7 +153,10 @@ public class CavesBossLevel extends Level {
 		Painter.fill(this, 16, 5, 1, 6, Terrain.EMPTY_SP);
 		Painter.fill(this, 15, 0, 3, 3, Terrain.EXIT);
 
-		exit = 16 + 2*width();
+		int exitCell = 16 + 2*width();
+		LevelTransition exit = new LevelTransition(this, exitCell, LevelTransition.Type.REGULAR_EXIT);
+		exit.set(14, 0, 18, 2);
+		transitions.add(exit);
 
 		CustomTilemap customVisuals = new CityEntrance();
 		customVisuals.setRect(0, 0, width(), 11);
@@ -162,6 +170,17 @@ public class CavesBossLevel extends Level {
 		customVisuals.setRect(0, 12, width(), 27);
 		customTiles.add(customVisuals);
 
+		//ensures that all pylons can be reached without stepping over water or wires
+		boolean[] pass = new boolean[length];
+		for (int i = 0; i < length; i++){
+			pass[i] = map[i] == Terrain.EMPTY || map[i] == Terrain.EMPTY_SP || map[i] == Terrain.EMPTY_DECO;
+		}
+		PathFinder.buildDistanceMap(16 + 25*width(), pass);
+		for (int i : pylonPositions){
+			if (PathFinder.distance[i] == Integer.MAX_VALUE){
+				return false;
+			}
+		}
 		return true;
 
 	}
@@ -193,29 +212,37 @@ public class CavesBossLevel extends Level {
 
 	@Override
 	protected void createItems() {
-		Item item = Bones.get();
-		if (item != null) {
-			int pos;
-			do {
-				pos = randomRespawnCell(null);
-			} while (pos == entrance);
-			drop( item, pos ).setHauntedIfCursed().type = Heap.Type.REMAINS;
-		}
+		Random.pushGenerator(Random.Long());
+			ArrayList<Item> bonesItems = Bones.get();
+			if (bonesItems != null) {
+				int pos;
+				do {
+					pos = randomRespawnCell(null);
+				} while (pos == entrance());
+				for (Item i : bonesItems) {
+					drop(i, pos).setHauntedIfCursed().type = Heap.Type.REMAINS;
+				}
+			}
+		Random.popGenerator();
 	}
 
 	@Override
 	public int randomRespawnCell( Char ch ) {
-		//this check is mainly here for DM-300, to prevent an infinite loop
-		if (Char.hasProp(ch, Char.Property.LARGE) && map[entrance] != Terrain.ENTRANCE){
-			return -1;
+		ArrayList<Integer> candidates = new ArrayList<>();
+		for (int i : PathFinder.NEIGHBOURS8){
+			int cell = entrance() + i;
+			if (passable[cell]
+					&& Actor.findChar(cell) == null
+					&& (!Char.hasProp(ch, Char.Property.LARGE) || openSpace[cell])){
+				candidates.add(cell);
+			}
 		}
-		int cell;
-		do {
-			cell = entrance + PathFinder.NEIGHBOURS8[Random.Int(8)];
-		} while (!passable[cell]
-				|| (Char.hasProp(ch, Char.Property.LARGE) && !openSpace[cell])
-				|| Actor.findChar(cell) != null);
-		return cell;
+
+		if (candidates.isEmpty()){
+			return -1;
+		} else {
+			return Random.element(candidates);
+		}
 	}
 
 	@Override
@@ -230,9 +257,21 @@ public class CavesBossLevel extends Level {
 	}
 
 	@Override
-	public void occupyCell(Char ch) {
-		super.occupyCell(ch);
+	public boolean invalidHeroPos(int tile) {
+		//hero cannot be above gate, or above arena, when gate is closed
+		if (map[gate.left + gate.top*width()] == Terrain.CUSTOM_DECO){
+			Point p = cellToPoint(tile);
+			if (p.y < diggableArea.top){
+				return true;
+			} else if (p.y < gate.bottom && p.x >= gate.left && p.x < gate.right){
+				return true;
+			}
+		}
+		return super.invalidHeroPos(tile);
+	}
 
+	@Override
+	public void occupyCell(Char ch) {
 		//seal the level when the hero moves near to a pylon, the level isn't already sealed, and the gate hasn't been destroyed
 		int gatePos = pointToCell(new Point(gate.left, gate.top));
 		if (ch == Dungeon.hero && !locked && solid[gatePos]){
@@ -243,21 +282,26 @@ public class CavesBossLevel extends Level {
 				}
 			}
 		}
+
+		super.occupyCell(ch);
 	}
 
 	@Override
 	public void seal() {
 		super.seal();
+		Statistics.qualifiedForBossChallengeBadge = true;
 
+		int entrance = entrance();
 		set( entrance, Terrain.WALL );
 
 		Heap heap = Dungeon.level.heaps.get( entrance );
-		if (heap != null) {
+		while (heap != null && !heap.isEmpty()) {
 			int n;
 			do {
-				n = entrance + PathFinder.NEIGHBOURS8[Random.Int( 8 )];
+				n = entrance + PathFinder.NEIGHBOURS8[Random.Int(8)];
 			} while (!Dungeon.level.passable[n]);
-			Dungeon.level.drop( heap.pickUp(), n ).sprite.drop( entrance );
+			Heap dropped = Dungeon.level.drop(heap.pickUp(), n);
+			dropped.seen = heap.seen;
 		}
 
 		Char ch = Actor.findChar( entrance );
@@ -274,7 +318,7 @@ public class CavesBossLevel extends Level {
 		Dungeon.observe();
 
 		CellEmitter.get( entrance ).start( Speck.factory( Speck.ROCK ), 0.07f, 10 );
-		Camera.main.shake( 3, 0.7f );
+		PixelScene.shake( 3, 0.7f );
 		Sample.INSTANCE.play( Assets.Sounds.ROCKS );
 
 		DM300 boss = new DM300();
@@ -299,9 +343,9 @@ public class CavesBossLevel extends Level {
 
 		blobs.get(PylonEnergy.class).fullyClear();
 
-		set( entrance, Terrain.ENTRANCE );
-		int i = 14 + 13*width();
-		for (int j = 0; j < 5; j++){
+		set( entrance(), Terrain.ENTRANCE );
+		int i = gate.top*width();
+		for (int j = gate.left; j < gate.right; j++){
 			set( i+j, Terrain.EMPTY );
 			if (Dungeon.level.heroFOV[i+j]){
 				CellEmitter.get(i+j).burst(BlastParticle.FACTORY, 10);
@@ -316,7 +360,12 @@ public class CavesBossLevel extends Level {
 		Game.runOnRenderThread(new Callback() {
 			@Override
 			public void call() {
-				Music.INSTANCE.end();
+				Music.INSTANCE.fadeOut(5f, new Callback() {
+					@Override
+					public void call() {
+						Music.INSTANCE.end();
+					}
+				});
 			}
 		});
 
@@ -344,7 +393,7 @@ public class CavesBossLevel extends Level {
 		}
 
 		for( int i = (mainArena.top-1)*width; i <length; i++){
-			if (map[i] == Terrain.INACTIVE_TRAP || map[i] == Terrain.WATER || map[i] == Terrain.SIGN){
+			if (map[i] == Terrain.INACTIVE_TRAP || map[i] == Terrain.WATER || map[i] == Terrain.CUSTOM_DECO){
 				GameScene.add(Blob.seed(i, 1, PylonEnergy.class));
 			}
 		}
@@ -391,6 +440,7 @@ public class CavesBossLevel extends Level {
 			case Terrain.WATER:
 				return super.tileDesc( tile ) + "\n\n" + Messages.get(CavesBossLevel.class, "water_desc");
 			case Terrain.ENTRANCE:
+			case Terrain.ENTRANCE_SP:
 				return Messages.get(CavesLevel.class, "entrance_desc");
 			case Terrain.EXIT:
 				//city exit is used
@@ -477,7 +527,7 @@ public class CavesBossLevel extends Level {
 	};
 
 	private void buildEntrance(){
-		entrance = 16 + 25*width();
+		int entrance = 16 + 25*width();
 
 		//entrance area
 		int NW = entrance - 7 - 7*width();
@@ -499,6 +549,7 @@ public class CavesBossLevel extends Level {
 		}
 
 		Painter.set(this, entrance, Terrain.ENTRANCE);
+		transitions.add(new LevelTransition(this, entrance, LevelTransition.Type.REGULAR_ENTRANCE));
 	}
 
 	private static short[] corner1 = {
@@ -789,14 +840,21 @@ public class CavesBossLevel extends Level {
 					if (off[cell] > 0){
 
 						Char ch = Actor.findChar(cell);
-						if (ch != null && !(ch instanceof DM300)) {
+						if (ch != null && !(ch instanceof DM300) && !ch.flying) {
 							Sample.INSTANCE.play( Assets.Sounds.LIGHTNING );
-							ch.damage( Random.NormalIntRange(6, 12), Electricity.class);
+							ch.damage( Random.NormalIntRange(6, 12), new Electricity());
 							ch.sprite.flash();
 
-							if (ch == Dungeon.hero && !ch.isAlive()) {
-								Dungeon.fail(DM300.class);
-								GLog.n( Messages.get(Electricity.class, "ondeath") );
+							if (ch == Dungeon.hero){
+								if (energySourceSprite != null && energySourceSprite instanceof PylonSprite){
+									//took damage while DM-300 was supercharged
+									Statistics.qualifiedForBossChallengeBadge = false;
+								}
+								Statistics.bossScores[2] -= 200;
+								if ( !ch.isAlive()) {
+									Dungeon.fail(DM300.class);
+									GLog.n(Messages.get(Electricity.class, "ondeath"));
+								}
 							}
 						}
 					}
@@ -829,15 +887,14 @@ public class CavesBossLevel extends Level {
 					}
 				}
 
-				SparkParticle s = ((SparkParticle) emitter.recycle(SparkParticle.class));
-				s.resetStatic(x, y);
-				s.speed.set((energySourceSprite.x + energySourceSprite.width/2f) - x,
-						(energySourceSprite.y + energySourceSprite.height/2f) - y);
-				s.speed.normalize().scale(DungeonTilemap.SIZE*2f);
+				float dist = (float)Math.max( Math.abs(energySourceSprite.x - x), Math.abs(energySourceSprite.y - y) );
+				dist = GameMath.gate(0, dist-40, 320);
+				//more sparks closer up
+				if (Random.Float(360) > dist) {
 
-				//offset the particles slightly so they don't go too far outside of the cell
-				s.x -= s.speed.x/8f;
-				s.y -= s.speed.y/8f;
+					SparkParticle s = ((SparkParticle) emitter.recycle(SparkParticle.class));
+					s.resetAttracting(x, y, energySourceSprite);
+				}
 			}
 
 			@Override
@@ -855,7 +912,7 @@ public class CavesBossLevel extends Level {
 		public void use( BlobEmitter emitter ) {
 			super.use( emitter );
 			energySourceSprite = null;
-			emitter.pour(DIRECTED_SPARKS, 0.125f);
+			emitter.pour(DIRECTED_SPARKS, 0.08f);
 		}
 
 	}

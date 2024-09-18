@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,42 +22,73 @@
 package com.shatteredpixel.shatteredpixeldungeon.desktop;
 
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Graphics;
+import com.badlogic.gdx.backends.lwjgl3.Lwjgl3Graphics;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.g2d.PixmapPacker;
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
-import com.badlogic.gdx.utils.SharedLibraryLoader;
 import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
+import com.watabou.input.ControllerHandler;
 import com.watabou.noosa.Game;
 import com.watabou.utils.PlatformSupport;
 import com.watabou.utils.Point;
 
-import java.awt.Desktop;
-import java.net.URI;
 import java.util.HashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class DesktopPlatformSupport extends PlatformSupport {
-	
+
+	//we recall previous window sizes as a workaround to not save maximized size to settings
+	//have to do this as updateDisplaySize is called before maximized is set =S
+	protected static Point[] previousSizes = null;
+
 	@Override
 	public void updateDisplaySize() {
-		//FIXME we still set window resolution when game becomes maximized =/
+		if (previousSizes == null){
+			previousSizes = new Point[2];
+			previousSizes[1] = SPDSettings.windowResolution();
+		} else {
+			previousSizes[1] = previousSizes[0];
+		}
+		previousSizes[0] = new Point(Game.width, Game.height);
 		if (!SPDSettings.fullscreen()) {
-			SPDSettings.windowResolution( new Point( Game.width, Game.height ) );
+			SPDSettings.windowResolution( previousSizes[0] );
 		}
 	}
-	
+
+	private static boolean first = true;
+
 	@Override
 	public void updateSystemUI() {
 		Gdx.app.postRunnable( new Runnable() {
 			@Override
 			public void run () {
 				if (SPDSettings.fullscreen()){
-					Gdx.graphics.setFullscreenMode( Gdx.graphics.getDisplayMode() );
+					int monitorNum = 0;
+					if (!first){
+						Graphics.Monitor[] monitors = Gdx.graphics.getMonitors();
+						for (int i = 0; i < monitors.length; i++){
+							if (((Lwjgl3Graphics.Lwjgl3Monitor)Gdx.graphics.getMonitor()).getMonitorHandle()
+									== ((Lwjgl3Graphics.Lwjgl3Monitor)monitors[i]).getMonitorHandle()) {
+								monitorNum = i;
+							}
+						}
+					} else {
+						monitorNum = SPDSettings.fulLScreenMonitor();
+					}
+
+					Graphics.Monitor[] monitors = Gdx.graphics.getMonitors();
+					if (monitors.length <= monitorNum) {
+						monitorNum = 0;
+					}
+					Gdx.graphics.setFullscreenMode(Gdx.graphics.getDisplayMode(monitors[monitorNum]));
+					SPDSettings.fulLScreenMonitor(monitorNum);
 				} else {
 					Point p = SPDSettings.windowResolution();
 					Gdx.graphics.setWindowedMode( p.x, p.y );
 				}
+				first = false;
 			}
 		} );
 	}
@@ -67,31 +98,10 @@ public class DesktopPlatformSupport extends PlatformSupport {
 		return true; //no easy way to check this in desktop, just assume user doesn't care
 	}
 
-	//TODO backported openURI fix from libGDX-1.10.1-SNAPSHOT, remove when updating libGDX
-	public boolean openURI( String uri ){
-		if (SharedLibraryLoader.isMac) {
-			try {
-				(new ProcessBuilder("open", (new URI(uri).toString()))).start();
-				return true;
-			} catch (Throwable t) {
-				return false;
-			}
-		} else if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-			try {
-				Desktop.getDesktop().browse(new URI(uri));
-				return true;
-			} catch (Throwable t) {
-				return false;
-			}
-		} else if (SharedLibraryLoader.isLinux) {
-			try {
-				(new ProcessBuilder("xdg-open", (new URI(uri).toString()))).start();
-				return true;
-			} catch (Throwable t) {
-				return false;
-			}
-		}
-		return false;
+	@Override
+	public boolean supportsVibration() {
+		//only supports vibration via controller
+		return ControllerHandler.vibrationSupported();
 	}
 
 	/* FONT SUPPORT */

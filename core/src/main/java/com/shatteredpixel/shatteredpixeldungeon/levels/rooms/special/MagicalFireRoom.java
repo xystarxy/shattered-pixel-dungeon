@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,11 +30,9 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Fire;
 import com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Freezing;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Burning;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Roots;
 import com.shatteredpixel.shatteredpixeldungeon.effects.BlobEmitter;
 import com.shatteredpixel.shatteredpixeldungeon.effects.particles.ElmoParticle;
 import com.shatteredpixel.shatteredpixeldungeon.items.Generator;
-import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Honeypot;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfFrost;
@@ -43,10 +41,11 @@ import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
 import com.shatteredpixel.shatteredpixeldungeon.levels.painters.Painter;
 import com.shatteredpixel.shatteredpixeldungeon.levels.rooms.Room;
 import com.shatteredpixel.shatteredpixeldungeon.levels.rooms.standard.EmptyRoom;
+import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.watabou.utils.PathFinder;
 import com.watabou.utils.Point;
 import com.watabou.utils.Random;
-import com.watabou.utils.Rect;
 
 public class MagicalFireRoom extends SpecialRoom {
 
@@ -154,7 +153,8 @@ public class MagicalFireRoom extends SpecialRoom {
 		return super.canPlaceCharacter(p, l);
 	}
 
-	public static class EternalFire extends Fire {
+	public static class EternalFire extends Blob {
+
 		@Override
 		protected void evolve() {
 
@@ -163,47 +163,73 @@ public class MagicalFireRoom extends SpecialRoom {
 			Freezing freeze = (Freezing)Dungeon.level.blobs.get( Freezing.class );
 			Blizzard bliz = (Blizzard)Dungeon.level.blobs.get( Blizzard.class );
 
+			Fire fire = (Fire)Dungeon.level.blobs.get( Fire.class );
+
 			//if any part of the fire is cleared, cleanse the whole thing
 			//Note that this is a bit brittle atm, it assumes only one group of eternal fire per floor
 			boolean clearAll = false;
 
 			Level l = Dungeon.level;
-			for (int i = area.left; i < area.right; i++){
-				for (int j = area.top; j < area.bottom; j++){
+			for (int i = area.left - 1; i <= area.right; i++){
+				for (int j = area.top - 1; j <= area.bottom; j++){
 					cell = i + j*l.width();
-					if (cur[cell] <= 0) continue;
 
-					cur[cell]++;
-
-					//evaporates in the presence of water, frost, or blizzard
-					//this blob is not considered interchangeable with fire, so those blobs do not interact with it otherwise
-					//potion of purity can cleanse it though
-					if (l.water[cell]){
-						cur[cell] = 0;
-						clearAll = true;
-					}
-					if (freeze != null && freeze.volume > 0 && freeze.cur[cell] > 0){
-						freeze.clear(cell);
-						cur[cell] = 0;
-						clearAll = true;
-					}
-					if (bliz != null && bliz.volume > 0 && bliz.cur[cell] > 0){
-						bliz.clear(cell);
-						cur[cell] = 0;
-						clearAll = true;
-					}
-
-					//if a char is adjacent, set them on fire briefly
 					if (cur[cell] > 0){
-						for (int k : PathFinder.NEIGHBOURS4){
-							Char ch = Actor.findChar(cell+k);
-							if (ch != null && !ch.isImmune(getClass())){
-								Buff.affect(ch, Burning.class).reignite(ch, 4f);
+						//evaporates in the presence of water, frost, or blizzard
+						//this blob is not considered interchangeable with fire, so those blobs do not interact with it otherwise
+						//potion of purity can cleanse it though
+						if (l.water[cell]){
+							cur[cell] = 0;
+							clearAll = true;
+						}
+						//overrides fire
+						if (fire != null && fire.volume > 0 && fire.cur[cell] > 0){
+							fire.clear(cell);
+						}
+
+						//clears itself if there is frost/blizzard on or next to it
+						for (int k : PathFinder.NEIGHBOURS9) {
+							if (freeze != null && freeze.volume > 0 && freeze.cur[cell+k] > 0) {
+								freeze.clear(cell);
+								cur[cell] = 0;
+								clearAll = true;
 							}
+							if (bliz != null && bliz.volume > 0 && bliz.cur[cell+k] > 0) {
+								bliz.clear(cell);
+								cur[cell] = 0;
+								clearAll = true;
+							}
+						}
+						l.passable[cell] = cur[cell] == 0 && (Terrain.flags[l.map[cell]] & Terrain.PASSABLE) != 0;
+					}
+
+					if (cur[cell] > 0
+							|| cur[cell-1] > 0
+							|| cur[cell+1] > 0
+							|| cur[cell-Dungeon.level.width()] > 0
+							|| cur[cell+Dungeon.level.width()] > 0) {
+
+						//spread fire to nearby flammable cells
+						if (Dungeon.level.flamable[cell] && (fire == null || fire.volume == 0 || fire.cur[cell] == 0)){
+							GameScene.add(Blob.seed(cell, 4, Fire.class));
+						}
+
+						//ignite adjacent chars
+						Char ch = Actor.findChar(cell);
+						if (ch != null && !ch.isImmune(getClass())) {
+							Buff.affect(ch, Burning.class).reignite(ch, 4f);
+						}
+
+						//burn adjacent heaps, but only on outside and non-water cells
+						if (Dungeon.level.heaps.get(cell) != null
+							&& Dungeon.level.map[cell] != Terrain.EMPTY_SP
+							&& Dungeon.level.map[cell] != Terrain.WATER){
+							Dungeon.level.heaps.get(cell).burn();
 						}
 					}
 
-					l.passable[cell] = cur[cell] == 0 && (Terrain.flags[l.map[cell]] & Terrain.PASSABLE) != 0;
+					off[cell] = cur[cell];
+					volume += off[cell];
 				}
 			}
 
@@ -212,7 +238,6 @@ public class MagicalFireRoom extends SpecialRoom {
 				return;
 			}
 
-			super.evolve();
 		}
 
 		@Override
@@ -223,7 +248,9 @@ public class MagicalFireRoom extends SpecialRoom {
 
 		@Override
 		public void clear(int cell) {
-			fullyClear();
+			if (volume > 0 && cur[cell] > 0) {
+				fullyClear();
+			}
 		}
 
 		@Override
@@ -236,6 +263,11 @@ public class MagicalFireRoom extends SpecialRoom {
 		public void use( BlobEmitter emitter ) {
 			super.use( emitter );
 			emitter.pour( ElmoParticle.FACTORY, 0.02f );
+		}
+
+		@Override
+		public String tileDesc() {
+			return Messages.get(this, "desc");
 		}
 
 		@Override

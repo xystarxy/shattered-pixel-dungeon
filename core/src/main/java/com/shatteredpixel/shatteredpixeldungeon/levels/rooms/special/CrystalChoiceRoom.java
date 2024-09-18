@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,7 +32,6 @@ import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
 import com.shatteredpixel.shatteredpixeldungeon.levels.painters.Painter;
 import com.shatteredpixel.shatteredpixeldungeon.levels.rooms.Room;
 import com.shatteredpixel.shatteredpixeldungeon.levels.rooms.standard.EmptyRoom;
-import com.shatteredpixel.shatteredpixeldungeon.levels.rooms.standard.EntranceRoom;
 import com.watabou.utils.Point;
 import com.watabou.utils.Random;
 
@@ -123,10 +122,12 @@ public class CrystalChoiceRoom extends SpecialRoom {
 		Item hidden = Generator.random(Random.oneOf(
 				Generator.Category.WAND,
 				Generator.Category.RING,
-				Generator.Category.ARTIFACT,
-				Generator.Category.GOLD     //*evil laughter*
+				Generator.Category.ARTIFACT
 		));
-		level.drop(hidden, level.pointToCell(room2.center())).type = Heap.Type.CHEST;
+		Heap chest = level.drop(hidden, level.pointToCell(room2.center()));
+		chest.type = Heap.Type.CHEST;
+		//opening the chest is optional, so it doesn't count for exploration bonus
+		chest.autoExplored = true;
 
 		level.addItemToSpawn( new CrystalKey( Dungeon.depth ) );
 

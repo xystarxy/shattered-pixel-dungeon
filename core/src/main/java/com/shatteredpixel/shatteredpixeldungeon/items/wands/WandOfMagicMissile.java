@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -82,13 +82,13 @@ public class WandOfMagicMissile extends DamageWand {
 		SpellSprite.show(attacker, SpellSprite.CHARGE);
 		for (Wand.Charger c : attacker.buffs(Wand.Charger.class)){
 			if (c.wand() != this){
-				c.gainCharge(0.5f);
+				c.gainCharge(0.5f * procChanceMultiplier(attacker));
 			}
 		}
 
 	}
-	
-	protected int initialCharges() {
+
+	public int initialCharges() {
 		return 3;
 	}
 
@@ -141,11 +141,6 @@ public class WandOfMagicMissile extends DamageWand {
 		@Override
 		public float iconFadePercent() {
 			return Math.max(0, (DURATION - visualcooldown()) / DURATION);
-		}
-
-		@Override
-		public String toString() {
-			return Messages.get(this, "name");
 		}
 
 		@Override

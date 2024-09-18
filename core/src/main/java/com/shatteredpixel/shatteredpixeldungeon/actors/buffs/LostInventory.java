@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,7 +21,8 @@
 
 package com.shatteredpixel.shatteredpixeldungeon.actors.buffs;
 
-import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
+import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
+import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.ui.BuffIndicator;
 
 public class LostInventory extends Buff {
@@ -31,18 +32,28 @@ public class LostInventory extends Buff {
 	}
 
 	@Override
+	public boolean attachTo( Char target ) {
+		if (super.attachTo( target )) {
+			if (target instanceof Hero && ((Hero) target).belongings != null){
+				((Hero) target).belongings.lostInventory(true);
+			}
+			return true;
+		} else {
+			return false;
+		}
+	}
+
+	@Override
+	public void detach() {
+		super.detach();
+		if (target instanceof Hero && ((Hero) target).belongings != null){
+			((Hero) target).belongings.lostInventory(false);
+		}
+	}
+
+	@Override
 	public int icon() {
 		return BuffIndicator.NOINV;
-	}
-
-	@Override
-	public String toString() {
-		return Messages.get(this, "name");
-	}
-
-	@Override
-	public String desc() {
-		return Messages.get(this, "desc");
 	}
 
 }

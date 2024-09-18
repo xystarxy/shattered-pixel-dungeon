@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -79,24 +79,28 @@ public abstract class SpecialRoom extends Room {
 		}
 	}
 
-	//10 special rooms which give equipment more often than consumables (or as often as)
+	//9 special rooms which give equipment more often than consumables (or as often as)
 	private static final ArrayList<Class<? extends SpecialRoom>> EQUIP_SPECIALS = new ArrayList<>( Arrays.asList(
 			WeakFloorRoom.class, CryptRoom.class, PoolRoom.class, ArmoryRoom.class, SentryRoom.class,
-			StatueRoom.class, CrystalVaultRoom.class, CrystalPathRoom.class, CrystalChoiceRoom.class,
-			SacrificeRoom.class
+			StatueRoom.class, CrystalVaultRoom.class, CrystalChoiceRoom.class, SacrificeRoom.class
 	));
 
-	//9 special rooms which give consumables more often than equipment
+	//10 special rooms which give consumables more often than equipment
 	//note that alchemy rooms are spawned separately
 	private static final ArrayList<Class<? extends SpecialRoom>> CONSUMABLE_SPECIALS = new ArrayList<>( Arrays.asList(
 			RunestoneRoom.class, GardenRoom.class, LibraryRoom.class, StorageRoom.class,
 			TreasuryRoom.class, MagicWellRoom.class, ToxicGasRoom.class, MagicalFireRoom.class,
-			TrapsRoom.class
+			TrapsRoom.class, CrystalPathRoom.class
 	) );
 
 	//only one special that uses crystal keys per floor
 	private static final ArrayList<Class<? extends SpecialRoom>> CRYSTAL_KEY_SPECIALS = new ArrayList<>( Arrays.asList(
 			PitRoom.class, CrystalVaultRoom.class, CrystalChoiceRoom.class, CrystalPathRoom.class
+	) );
+
+	//only one special that generates a potion per floor
+	private static final ArrayList<Class<? extends SpecialRoom>> POTION_SPAWN_ROOMS = new ArrayList<>( Arrays.asList(
+			PoolRoom.class, SentryRoom.class, StorageRoom.class, ToxicGasRoom.class, MagicalFireRoom.class, TrapsRoom.class
 	) );
 
 	public static ArrayList<Class<? extends Room>> runSpecials = new ArrayList<>();
@@ -113,10 +117,8 @@ public abstract class SpecialRoom extends Room {
 		Random.shuffle(runEquipSpecials);
 		Random.shuffle(runConsSpecials);
 
-		// TODO currently always an equip special first as there's 1 more of them, adjust as needed if adding more
-		/*if (Random.Int(2) == 0){
-			runSpecials.add(runConsSpecials.remove(0));
-		}*/
+		// TODO currently always a consumable special first as there's 1 more of them, adjust as needed if adding more
+		runSpecials.add(runConsSpecials.remove(0));
 
 		while (!runEquipSpecials.isEmpty() || !runConsSpecials.isEmpty()){
 			if (!runEquipSpecials.isEmpty())    runSpecials.add(runEquipSpecials.remove(0));
@@ -129,8 +131,9 @@ public abstract class SpecialRoom extends Room {
 	public static void initForFloor(){
 		floorSpecials = (ArrayList<Class<?extends Room>>) runSpecials.clone();
 		
-		//laboratory rooms spawn at set intervals every chapter
-		if (Dungeon.depth%5 == (Dungeon.seed%3 + 2)){
+		//laboratory rooms spawn on floor 3 or 4 each chapter
+		if (Dungeon.labRoomNeeded()){
+			Dungeon.LimitedDrops.LAB_ROOM.count++;
 			floorSpecials.add(0, LaboratoryRoom.class);
 		}
 	}
@@ -139,6 +142,9 @@ public abstract class SpecialRoom extends Room {
 		floorSpecials.remove( type );
 		if (CRYSTAL_KEY_SPECIALS.contains(type)){
 			floorSpecials.removeAll(CRYSTAL_KEY_SPECIALS);
+		}
+		if (POTION_SPAWN_ROOMS.contains(type)){
+			floorSpecials.removeAll(POTION_SPAWN_ROOMS);
 		}
 		if (runSpecials.remove( type )) {
 			runSpecials.add( type );

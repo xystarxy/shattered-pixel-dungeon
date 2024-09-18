@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,6 +27,7 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Blob;
 import com.shatteredpixel.shatteredpixeldungeon.actors.blobs.Web;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
+import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Beam;
 import com.shatteredpixel.shatteredpixeldungeon.effects.CellEmitter;
 import com.shatteredpixel.shatteredpixeldungeon.effects.particles.PurpleParticle;
@@ -59,7 +60,11 @@ public class WandOfDisintegration extends DamageWand {
 	
 	@Override
 	public int targetingPos(Hero user, int dst) {
-		return dst;
+		if (!cursed || !cursedKnown) {
+			return dst;
+		} else {
+			return super.targetingPos(user, dst);
+		}
 	}
 
 	@Override
@@ -86,7 +91,12 @@ public class WandOfDisintegration extends DamageWand {
 				terrainBonus += terrainPassed/3;
 				terrainPassed = terrainPassed%3;
 
-				chars.add( ch );
+				if (ch instanceof Mob && ((Mob) ch).state == ((Mob) ch).PASSIVE
+						&& !(Dungeon.level.mapped[c] || Dungeon.level.visited[c])){
+					//avoid harming undiscovered passive chars
+				} else {
+					chars.add(ch);
+				}
 			}
 
 			if (Dungeon.level.solid[c]) {
@@ -125,7 +135,12 @@ public class WandOfDisintegration extends DamageWand {
 	private int distance() {
 		return buffedLvl()*2 + 6;
 	}
-	
+
+	@Override
+	public String upgradeStat2(int level) {
+		return Integer.toString(6 + level*2);
+	}
+
 	@Override
 	public void fx(Ballistica beam, Callback callback) {
 		

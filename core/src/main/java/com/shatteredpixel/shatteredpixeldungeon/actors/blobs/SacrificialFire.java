@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 package com.shatteredpixel.shatteredpixeldungeon.actors.blobs;
 
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
+import com.shatteredpixel.shatteredpixeldungeon.Badges;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
@@ -33,10 +34,13 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mimic;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Piranha;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Statue;
+import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Swarm;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Wraith;
 import com.shatteredpixel.shatteredpixeldungeon.effects.BlobEmitter;
 import com.shatteredpixel.shatteredpixeldungeon.effects.CellEmitter;
 import com.shatteredpixel.shatteredpixeldungeon.effects.particles.SacrificialParticle;
+import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+import com.shatteredpixel.shatteredpixeldungeon.journal.Notes;
 import com.shatteredpixel.shatteredpixeldungeon.levels.rooms.special.SacrificeRoom;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
@@ -58,6 +62,13 @@ public class SacrificialFire extends Blob {
 	// The limit is to prevent farming
 	private int bonusSpawns = 3;
 
+	private Item prize;
+
+	@Override
+	public Notes.Landmark landmark() {
+		return Notes.Landmark.SACRIFICIAL_FIRE;
+	}
+
 	@Override
 	protected void evolve() {
 		int cell;
@@ -68,20 +79,25 @@ public class SacrificialFire extends Blob {
 					off[cell] = cur[cell];
 					volume += off[cell];
 
-					Char ch = Actor.findChar( cell );
-					if (ch != null && off[cell] > 0){
-						if (Dungeon.level.heroFOV[cell] && ch.buff( Marked.class ) == null) {
-							CellEmitter.get(cell).burst( SacrificialParticle.FACTORY, 5 );
+					if (off[cell] > 0){
+						for (int k : PathFinder.NEIGHBOURS9){
+							Char ch = Actor.findChar( cell+k );
+							if (ch != null){
+								if (Dungeon.level.heroFOV[cell+k] && ch.buff( Marked.class ) == null) {
+									CellEmitter.get(cell+k).burst( SacrificialParticle.FACTORY, 5 );
+								}
+								Buff.prolong( ch, Marked.class, Marked.DURATION );
+							}
 						}
-						Buff.prolong( ch, Marked.class, Marked.DURATION );
-					}
 
-					if (off[cell] > 0
-							&& Dungeon.level.heroFOV[cell]
-							&& Dungeon.level.mobCount() == 0
-							&& bonusSpawns > 0){
-						if (Dungeon.level.spawnMob(4)) {
-							bonusSpawns--;
+						if (off[cell] > 0 && Dungeon.level.visited[cell]) {
+
+							if (Dungeon.level.mobCount() == 0
+									&& bonusSpawns > 0) {
+								if (Dungeon.level.spawnMob(4)) {
+									bonusSpawns--;
+								}
+							}
 						}
 					}
 				}
@@ -89,7 +105,7 @@ public class SacrificialFire extends Blob {
 		}
 
 		//a bit brittle, assumes only one tile of sacrificial fire can exist per floor
-		int max = 5 + Dungeon.depth * 5;
+		int max = 6 + Dungeon.depth * 4;
 		curEmitter.pour( SacrificialParticle.FACTORY, 0.01f + ((volume / (float)max) * 0.09f) );
 	}
 
@@ -99,7 +115,7 @@ public class SacrificialFire extends Blob {
 		curEmitter = emitter;
 
 		//a bit brittle, assumes only one tile of sacrificial fire can exist per floor
-		int max = 5 + Dungeon.depth * 5;
+		int max = 6 + Dungeon.depth * 4;
 		curEmitter.pour( SacrificialParticle.FACTORY, 0.01f + ((volume / (float)max) * 0.09f) );
 	}
 
@@ -109,63 +125,85 @@ public class SacrificialFire extends Blob {
 	}
 
 	private static final String BONUS_SPAWNS = "bonus_spawns";
+	private static final String PRIZE = "prize";
 
 	@Override
 	public void storeInBundle(Bundle bundle) {
 		super.storeInBundle(bundle);
 		bundle.put(BONUS_SPAWNS, bonusSpawns);
+		bundle.put(PRIZE, prize);
 	}
 
 	@Override
 	public void restoreFromBundle(Bundle bundle) {
 		super.restoreFromBundle(bundle);
 		bonusSpawns = bundle.getInt(BONUS_SPAWNS);
+		if (bundle.contains(PRIZE)) prize = (Item) bundle.get(PRIZE);
 	}
 
-	public static void sacrifice( Char ch ) {
+	public void setPrize( Item prize ){
+		this.prize = prize;
+	}
 
-		SacrificialFire fire = (SacrificialFire)Dungeon.level.blobs.get( SacrificialFire.class );
+	public void sacrifice( Char ch ) {
 
-		if (fire != null && fire.cur[ch.pos] > 0) {
+		int firePos = -1;
+		for (int i : PathFinder.NEIGHBOURS9){
+			if (volume > 0 && cur[ch.pos+i] > 0){
+				firePos = ch.pos+i;
+				break;
+			}
+		}
+
+		if (firePos != -1) {
 
 			int exp = 0;
 			if (ch instanceof Mob) {
-				//same rates as used in wand of corruption
+				//same rates as used in wand of corruption, except for swarms
 				if (ch instanceof Statue || ch instanceof Mimic){
 					exp = 1 + Dungeon.depth;
 				} else if (ch instanceof Piranha || ch instanceof Bee) {
 					exp = 1 + Dungeon.depth/2;
 				} else if (ch instanceof Wraith) {
 					exp = 1 + Dungeon.depth/3;
-				} else {
-					exp = ((Mob)ch).EXP;
+				} else if (ch instanceof Swarm && ((Swarm) ch).EXP == 0){
+					//give 1 exp for child swarms, instead of 0
+					exp = 1;
+				} else if (((Mob) ch).EXP > 0) {
+					exp = 1 + ((Mob)ch).EXP;
 				}
 				exp *= Random.IntRange( 2, 3 );
 			} else if (ch instanceof Hero) {
 				exp = 1_000_000; //always enough to activate the reward, if you can somehow get it
+				Badges.validateDeathFromSacrifice();
 			}
 
 			if (exp > 0) {
 
-				int volume = fire.cur[ch.pos] - exp;
-				if (volume > 0) {
-					fire.cur[ch.pos] -= exp;
-					fire.volume -= exp;
-					fire.bonusSpawns++;
-					CellEmitter.get(ch.pos).burst( SacrificialParticle.FACTORY, 20 );
+				int volumeLeft = cur[firePos] - exp;
+				if (volumeLeft > 0) {
+					cur[firePos] -= exp;
+					volume -= exp;
+					bonusSpawns++;
+					CellEmitter.get(firePos).burst( SacrificialParticle.FACTORY, 20 );
 					Sample.INSTANCE.play(Assets.Sounds.BURNING );
 					GLog.w( Messages.get(SacrificialFire.class, "worthy"));
 				} else {
-					fire.clear(ch.pos);
+					clear(firePos);
+					if (volume <= 0) Notes.remove( landmark() );
 
 					for (int i : PathFinder.NEIGHBOURS9){
-						CellEmitter.get(ch.pos+i).burst( SacrificialParticle.FACTORY, 20 );
+						CellEmitter.get(firePos+i).burst( SacrificialParticle.FACTORY, 20 );
 					}
 					Sample.INSTANCE.play(Assets.Sounds.BURNING );
 					Sample.INSTANCE.play(Assets.Sounds.BURNING );
 					Sample.INSTANCE.play(Assets.Sounds.BURNING );
 					GLog.w( Messages.get(SacrificialFire.class, "reward"));
-					Dungeon.level.drop( SacrificeRoom.prize( Dungeon.level ), ch.pos ).sprite.drop();
+					if (prize != null) {
+						Dungeon.level.drop(prize, firePos).sprite.drop();
+					} else {
+						Dungeon.level.drop(SacrificeRoom.prize(Dungeon.level), firePos).sprite.drop();
+					}
 				}
 			} else {
 
@@ -182,7 +220,10 @@ public class SacrificialFire extends Blob {
 		@Override
 		public void detach() {
 			if (!target.isAlive()) {
-				sacrifice( target );
+				SacrificialFire fire = (SacrificialFire) Dungeon.level.blobs.get(SacrificialFire.class);
+				if (fire != null) {
+					fire.sacrifice(target);
+				}
 			}
 			super.detach();
 		}

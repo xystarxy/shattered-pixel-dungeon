@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -50,7 +50,8 @@ public class Camera extends Gizmo {
 	int screenHeight;
 	
 	public float[] matrix;
-	
+
+	public PointF edgeScroll;
 	public PointF scroll;
 	public PointF centerOffset;
 	
@@ -121,7 +122,8 @@ public class Camera extends Gizmo {
 		
 		screenWidth = (int)(width * zoom);
 		screenHeight = (int)(height * zoom);
-		
+
+		edgeScroll = new PointF();
 		scroll = new PointF();
 		centerOffset = new PointF();
 		
@@ -136,8 +138,8 @@ public class Camera extends Gizmo {
 	
 	public void zoom( float value ) {
 		zoom( value,
-			scroll.x + width / 2,
-			scroll.y + height / 2 );
+			scroll.x + width / 2f,
+			scroll.y + height / 2f );
 	}
 	
 	public void zoom( float value, float fx, float fy ) {
@@ -160,27 +162,55 @@ public class Camera extends Gizmo {
 	}
 	
 	Visual followTarget = null;
-	PointF panTarget;
+	PointF panTarget = new PointF();
 	//camera moves at a speed such that it will pan to its current target in 1/intensity seconds
 	//keep in mind though that this speed is constantly decreasing, so actual pan time is higher
 	float panIntensity = 0f;
+
+	//what percentage of the screen to ignore when follow panning.
+	// 0% means always keep in the center, 50% would mean pan until target is within center 50% of screen
+	float followDeadzone = 0f;
 	
 	@Override
 	public void update() {
 		super.update();
-		
+
+		float deadX = 0;
+		float deadY = 0;
 		if (followTarget != null){
-			panTarget = followTarget.center().offset(centerOffset);
+			//manually assign here to avoid an allocation from sprite.center()
+			panTarget.x = followTarget.x + followTarget.width()/2;
+			panTarget.y = followTarget.y + followTarget.height()/2;
+			panTarget.offset(centerOffset);
+			deadX = width * followDeadzone /2f;
+			deadY = height * followDeadzone /2f;
 		}
 		
 		if (panIntensity > 0f){
-			PointF panMove = new PointF();
-			panMove.x = panTarget.x - (scroll.x + width/2f);
-			panMove.y = panTarget.y - (scroll.y + height/2f);
-			
-			panMove.scale(Math.min(1f, Game.elapsed * panIntensity));
-			
-			scroll.offset(panMove);
+
+			float panX = panTarget.x - (scroll.x + width/2f);
+			float panY = panTarget.y - (scroll.y + height/2f);
+
+			if (panX > deadX){
+				panX -= deadX;
+			} else if (panX < -deadX){
+				panX += deadX;
+			} else {
+				panX = 0;
+			}
+
+			if (panY > deadY){
+				panY -= deadY;
+			} else if (panY < -deadY){
+				panY += deadY;
+			} else {
+				panY = 0;
+			}
+
+			panX *= Math.min(1f, Game.elapsed * panIntensity);
+			panY *= Math.min(1f, Game.elapsed * panIntensity);
+
+			scroll.offset(panX, panY);
 		}
 		
 		if ((shakeTime -= Game.elapsed) > 0) {
@@ -211,13 +241,15 @@ public class Camera extends Gizmo {
 	public void setCenterOffset( float x, float y ){
 		scroll.x    += x - centerOffset.x;
 		scroll.y    += y - centerOffset.y;
-		panTarget.x += x - centerOffset.x;
-		panTarget.y += y - centerOffset.y;
+		if (panTarget != null) {
+			panTarget.x += x - centerOffset.x;
+			panTarget.y += y - centerOffset.y;
+		}
 		centerOffset.set(x, y);
 	}
 	
 	public void snapTo(float x, float y ) {
-		scroll.set( x - width / 2, y - height / 2 ).offset(centerOffset);
+		scroll.set( x - width / 2f, y - height / 2f ).offset(centerOffset);
 		panIntensity = 0f;
 		followTarget = null;
 	}
@@ -235,6 +267,10 @@ public class Camera extends Gizmo {
 	public void panFollow(Visual target, float intensity ){
 		followTarget = target;
 		panIntensity = intensity;
+	}
+
+	public void setFollowDeadzone( float deadzone ){
+		followDeadzone = deadzone;
 	}
 	
 	public PointF screenToCamera( int x, int y ) {

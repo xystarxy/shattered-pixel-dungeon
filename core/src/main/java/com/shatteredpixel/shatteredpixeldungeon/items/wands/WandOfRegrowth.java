@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,21 +23,15 @@ package com.shatteredpixel.shatteredpixeldungeon.items.wands;
 
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
+import com.shatteredpixel.shatteredpixeldungeon.Statistics;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.AllyBuff;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Amok;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Corruption;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Doom;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Dread;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Paralysis;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Roots;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Sleep;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Terror;
-import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Vertigo;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.abilities.mage.WildMagic;
+import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.DwarfKing;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.NPC;
 import com.shatteredpixel.shatteredpixeldungeon.effects.MagicMissile;
 import com.shatteredpixel.shatteredpixeldungeon.items.Dewdrop;
@@ -120,6 +114,9 @@ public class WandOfRegrowth extends Wand {
 				}
 				Char ch = Actor.findChar(cell);
 				if (ch != null){
+					if (ch instanceof DwarfKing){
+						Statistics.qualifiedForBossChallengeBadge = false;
+					}
 					wandProc(ch, chargesPerCast());
 					Buff.prolong( ch, Roots.class, 4f * chrgUsed );
 				}
@@ -202,15 +199,19 @@ public class WandOfRegrowth extends Wand {
 		}
 
 	}
-	
+
 	private int chargeLimit( int heroLvl ){
-		if (level() >= 10){
+		return chargeLimit(  heroLvl, level() );
+	}
+
+	private int chargeLimit( int heroLvl, int wndLvl ){
+		if (wndLvl >= 10){
 			return Integer.MAX_VALUE;
 		} else {
-			//8 charges at base, plus:
-			//2/3.33/5/7/10/14/20/30/50/110/infinite charges per hero level, based on wand level
-			float lvl = level();
-			return Math.round(8 + heroLvl * (2+lvl) * (1f + (lvl/(10 - lvl))));
+			//20 charges at base, plus:
+			//2/3.1/4.2/5.5/6.8/8.4/10.4/13.2/18.0/30.8/inf. charges per hero level, at wand level:
+			//0/1  /2  /3  /4  /5  /6   /7   /8   /9   /10
+			return Math.round(20 + heroLvl * (2+wndLvl) * (1f + (wndLvl/(50 - 5*wndLvl))));
 		}
 	}
 
@@ -234,6 +235,7 @@ public class WandOfRegrowth extends Wand {
 			// lvl 1 - 21%
 			// lvl 2 - 25%
 			int healing = Math.round(damage * (level + 2f) / (level + 6f) / 2f);
+			healing = Math.round(healing * procChanceMultiplier(attacker));
 			Buff.affect(attacker, Sungrass.Health.class).boost(healing);
 		}
 
@@ -243,7 +245,6 @@ public class WandOfRegrowth extends Wand {
 
 		// 4/6/8 distance
 		int maxDist = 2 + 2*chargesPerCast();
-		int dist = Math.min(bolt.dist, maxDist);
 
 		cone = new ConeAOE( bolt,
 				maxDist,
@@ -251,7 +252,11 @@ public class WandOfRegrowth extends Wand {
 				Ballistica.STOP_SOLID | Ballistica.STOP_TARGET);
 
 		//cast to cells at the tip, rather than all cells, better performance.
+		Ballistica longestRay = null;
 		for (Ballistica ray : cone.outerRays){
+			if (longestRay == null || ray.dist > longestRay.dist){
+				longestRay = ray;
+			}
 			((MagicMissile)curUser.sprite.parent.recycle( MagicMissile.class )).reset(
 					MagicMissile.FOLIAGE_CONE,
 					curUser.sprite,
@@ -260,18 +265,19 @@ public class WandOfRegrowth extends Wand {
 			);
 		}
 
-		//final zap at half distance, for timing of the actual wand effect
+		//final zap at half distance of the longest ray, for timing of the actual wand effect
 		MagicMissile.boltFromChar( curUser.sprite.parent,
 				MagicMissile.FOLIAGE_CONE,
 				curUser.sprite,
-				bolt.path.get(dist/2),
+				longestRay.path.get(longestRay.dist/2),
 				callback );
 		Sample.INSTANCE.play( Assets.Sounds.ZAP );
 	}
 
 	@Override
 	protected int chargesPerCast() {
-		if (charger != null && charger.target.buff(WildMagic.WildMagicTracker.class) != null){
+		if (cursed ||
+				(charger != null && charger.target == null && charger.target.buff(WildMagic.WildMagicTracker.class) != null)){
 			return 1;
 		}
 		//consumes 30% of current charges, rounded up, with a min of 1 and a max of 3.
@@ -286,6 +292,20 @@ public class WandOfRegrowth extends Wand {
 			if (chargeLeft < 10000) desc += " " + Messages.get(this, "degradation", Math.max(chargeLeft, 0));
 		}
 		return desc;
+	}
+
+	@Override
+	public String upgradeStat1(int level) {
+		return Messages.decimalFormat("#.##", 3 + (2+level)/3f);
+	}
+
+	@Override
+	public String upgradeStat2(int level) {
+		if (level >= 10){
+			return "∞";
+		} else {
+			return Integer.toString(chargeLimit(Dungeon.hero.lvl, level));
+		}
 	}
 
 	@Override
@@ -331,8 +351,8 @@ public class WandOfRegrowth extends Wand {
 			ArrayList<Integer> candidates = new ArrayList<>();
 			for (int i : PathFinder.NEIGHBOURS8){
 				if (Dungeon.level.passable[pos+i]
-						&& pos+i != Dungeon.level.entrance
-						&& pos+i != Dungeon.level.exit){
+						&& pos+i != Dungeon.level.entrance()
+						&& pos+i != Dungeon.level.exit()){
 					candidates.add(pos+i);
 				}
 			}
@@ -371,15 +391,15 @@ public class WandOfRegrowth extends Wand {
 			ArrayList<Integer> candidates = new ArrayList<>();
 			for (int i : PathFinder.NEIGHBOURS8){
 				if (Dungeon.level.passable[pos+i]
-						&& pos+i != Dungeon.level.entrance
-						&& pos+i != Dungeon.level.exit){
+						&& pos+i != Dungeon.level.entrance()
+						&& pos+i != Dungeon.level.exit()){
 					candidates.add(pos+i);
 				}
 			}
 
 			for (int i = 0; i < nSeeds && !candidates.isEmpty(); i++){
 				Integer c = Random.element(candidates);
-				Dungeon.level.drop(Generator.random(Generator.Category.SEED), c).sprite.drop(pos);
+				Dungeon.level.drop(Generator.randomUsingDefaults(Generator.Category.SEED), c).sprite.drop(pos);
 				candidates.remove(c);
 			}
 
@@ -399,6 +419,7 @@ public class WandOfRegrowth extends Wand {
 		{
 			alignment = Alignment.NEUTRAL;
 			properties.add(Property.IMMOVABLE);
+			properties.add(Property.STATIC);
 
 			spriteClass = LotusSprite.class;
 
@@ -417,7 +438,7 @@ public class WandOfRegrowth extends Wand {
 		}
 
 		public float seedPreservation(){
-			return 0.40f + 0.04f*wandLvl;
+			return Math.min( 1f, 0.40f + 0.04f*wandLvl );
 		}
 
 		@Override
@@ -439,10 +460,12 @@ public class WandOfRegrowth extends Wand {
 
 		@Override
 		public void damage( int dmg, Object src ) {
+			//do nothing
 		}
 
 		@Override
-		public void add( Buff buff ) {
+		public boolean add( Buff buff ) {
+			return false;
 		}
 
 		@Override
@@ -458,20 +481,17 @@ public class WandOfRegrowth extends Wand {
 		}
 
 		{
-			immunities.add( Paralysis.class );
-			immunities.add( Amok.class );
-			immunities.add( Sleep.class );
-			immunities.add( Terror.class );
-			immunities.add( Dread.class );
-			immunities.add( Vertigo.class );
-			immunities.add( AllyBuff.class );
 			immunities.add( Doom.class );
 		}
 
 		@Override
 		public String description() {
-			int preservation = Math.round(seedPreservation()*100);
-			return Messages.get(this, "desc", wandLvl, preservation, preservation);
+			String desc = Messages.get(this, "desc");
+			if (Actor.chars().contains(this)) {
+				int preservation = Math.round(seedPreservation()*100);
+				desc += "\n\n" + Messages.get(this, "wand_info", wandLvl, preservation, preservation);
+			}
+			return desc;
 		}
 
 		private static final String WAND_LVL = "wand_lvl";

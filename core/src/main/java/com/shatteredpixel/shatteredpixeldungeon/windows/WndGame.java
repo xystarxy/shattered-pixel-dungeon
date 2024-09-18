@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@ package com.shatteredpixel.shatteredpixeldungeon.windows;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.GamesInProgress;
+import com.shatteredpixel.shatteredpixeldungeon.SPDSettings;
 import com.shatteredpixel.shatteredpixeldungeon.ShatteredPixelDungeon;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
@@ -30,7 +31,6 @@ import com.shatteredpixel.shatteredpixeldungeon.scenes.HeroSelectScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.InterlevelScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.RankingsScene;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.TitleScene;
-import com.shatteredpixel.shatteredpixeldungeon.services.updates.Updates;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
@@ -61,18 +61,6 @@ public class WndGame extends Window {
 		});
 		curBtn.icon(Icons.get(Icons.PREFS));
 
-		//install prompt
-		if (Updates.isInstallable()){
-			addButton( curBtn = new RedButton( Messages.get(this, "install") ) {
-				@Override
-				protected void onClick() {
-					Updates.launchInstall();
-				}
-			} );
-			curBtn.textColor(Window.SHPX_COLOR);
-			curBtn.icon(Icons.get(Icons.CHANGES));
-		}
-
 		// Challenges window
 		if (Dungeon.challenges > 0) {
 			addButton( curBtn = new RedButton( Messages.get(this, "challenges") ) {
@@ -82,7 +70,7 @@ public class WndGame extends Window {
 					GameScene.show( new WndChallenges( Dungeon.challenges, false ) );
 				}
 			} );
-			curBtn.icon(Icons.get(Icons.CHALLENGE_ON));
+			curBtn.icon(Icons.get(Icons.CHALLENGE_COLOR));
 		}
 
 		// Restart
@@ -91,7 +79,6 @@ public class WndGame extends Window {
 			addButton( curBtn = new RedButton( Messages.get(this, "start") ) {
 				@Override
 				protected void onClick() {
-					InterlevelScene.noStory = true;
 					GamesInProgress.selectedClass = Dungeon.hero.heroClass;
 					GamesInProgress.curSlot = GamesInProgress.firstEmpty();
 					ShatteredPixelDungeon.switchScene(HeroSelectScene.class);
@@ -111,7 +98,7 @@ public class WndGame extends Window {
 		}
 
 		// Main menu
-		addButton(curBtn = new RedButton( Messages.get(this, "menu") ) {
+		addButton(curBtn = new RedButton(Messages.get(this, "menu")) {
 			@Override
 			protected void onClick() {
 				try {
@@ -121,8 +108,9 @@ public class WndGame extends Window {
 				}
 				Game.switchScene(TitleScene.class);
 			}
-		} );
+		});
 		curBtn.icon(Icons.get(Icons.DISPLAY));
+		if (SPDSettings.intro()) curBtn.enable(false);
 
 		resize( WIDTH, pos );
 	}

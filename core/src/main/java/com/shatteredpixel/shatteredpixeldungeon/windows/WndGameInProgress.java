@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,12 +36,9 @@ import com.shatteredpixel.shatteredpixeldungeon.ui.Icons;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RedButton;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
+import com.shatteredpixel.shatteredpixeldungeon.utils.DungeonSeed;
 import com.watabou.noosa.Game;
-import com.shatteredpixel.shatteredpixeldungeon.ui.Button;
-import com.watabou.utils.Bundle;
-import com.watabou.utils.FileUtils;
 
-import java.io.IOException;
 import java.util.Locale;
 
 public class WndGameInProgress extends Window {
@@ -70,23 +67,6 @@ public class WndGameInProgress extends Window {
 		title.setRect( 0, 0, WIDTH, 0 );
 		add(title);
 		
-		//manually produces debug information about a run, mainly useful for levelgen errors
-		Button debug = new Button(){
-			@Override
-			protected boolean onLongClick() {
-				try {
-					Bundle bundle = FileUtils.bundleFromFile(GamesInProgress.gameFile(slot));
-					ShatteredPixelDungeon.scene().addToFront(new WndMessage("_Debug Info:_\n\n" +
-							"Version: " + Game.version + " (" + Game.versionCode + ")\n" +
-							"Seed: " + bundle.getLong("seed") + "\n" +
-							"Challenge Mask: " + info.challenges));
-				} catch (IOException ignored) { }
-				return true;
-			}
-		};
-		debug.setRect(0, 0, title.imIcon.width(), title.imIcon.height);
-		add(debug);
-		
 		if (info.challenges > 0) GAP -= 2;
 		
 		pos = title.bottom() + GAP;
@@ -98,7 +78,7 @@ public class WndGameInProgress extends Window {
 					Game.scene().add( new WndChallenges( info.challenges, false ) );
 				}
 			};
-			btnChallenges.icon(Icons.get(Icons.CHALLENGE_ON));
+			btnChallenges.icon(Icons.get(Icons.CHALLENGE_COLOR));
 			float btnW = btnChallenges.reqWidth() + 2;
 			btnChallenges.setRect( (WIDTH - btnW)/2, pos, btnW , 18 );
 			add( btnChallenges );
@@ -119,6 +99,17 @@ public class WndGameInProgress extends Window {
 		pos += GAP;
 		statSlot( Messages.get(this, "gold"), info.goldCollected );
 		statSlot( Messages.get(this, "depth"), info.maxDepth );
+		if (info.daily) {
+			if (info.dailyReplay) {
+				statSlot(Messages.get(this, "replay_for"), "_" + info.customSeed + "_");
+			} else {
+				statSlot(Messages.get(this, "daily_for"), "_" + info.customSeed + "_");
+			}
+		} else if (!info.customSeed.isEmpty()){
+			statSlot( Messages.get(this, "custom_seed"), "_" + info.customSeed + "_" );
+		} else {
+			statSlot( Messages.get(this, "dungeon_seed"), DungeonSeed.convertToCode(info.seed) );
+		}
 		
 		pos += GAP;
 		
@@ -130,7 +121,8 @@ public class WndGameInProgress extends Window {
 				GamesInProgress.curSlot = slot;
 				
 				Dungeon.hero = null;
-				ActionIndicator.action = null;
+				Dungeon.daily = Dungeon.dailyReplay = false;
+				ActionIndicator.clearAction();
 				InterlevelScene.mode = InterlevelScene.Mode.CONTINUE;
 				ShatteredPixelDungeon.switchScene(InterlevelScene.class);
 			}
@@ -173,9 +165,12 @@ public class WndGameInProgress extends Window {
 		RenderedTextBlock txt = PixelScene.renderTextBlock( label, 8 );
 		txt.setPos(0, pos);
 		add( txt );
-		
-		txt = PixelScene.renderTextBlock( value, 8 );
-		txt.setPos(WIDTH * 0.6f, pos);
+
+		int size = 8;
+		if (value.length() >= 14) size -=2;
+		if (value.length() >= 18) size -=1;
+		txt = PixelScene.renderTextBlock( value, size );
+		txt.setPos(WIDTH * 0.55f, pos + (6 - txt.height())/2);
 		PixelScene.align(txt);
 		add( txt );
 		

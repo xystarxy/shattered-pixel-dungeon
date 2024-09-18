@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,7 +28,9 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.MagicImmune;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Momentum;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.PinCushion;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.RevealedArea;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
+import com.shatteredpixel.shatteredpixeldungeon.actors.hero.HeroClass;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Talent;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.bags.Bag;
@@ -73,7 +75,11 @@ abstract public class MissileWeapon extends Weapon {
 	
 	@Override
 	public int min() {
-		return Math.max(0, min( buffedLvl() + RingOfSharpshooting.levelDamageBonus(Dungeon.hero) ));
+		if (Dungeon.hero != null){
+			return Math.max(0, min(buffedLvl() + RingOfSharpshooting.levelDamageBonus(Dungeon.hero)));
+		} else {
+			return Math.max(0 , min( buffedLvl() ));
+		}
 	}
 	
 	@Override
@@ -84,7 +90,11 @@ abstract public class MissileWeapon extends Weapon {
 	
 	@Override
 	public int max() {
-		return Math.max(0, max( buffedLvl() + RingOfSharpshooting.levelDamageBonus(Dungeon.hero) ));
+		if (Dungeon.hero != null){
+			return Math.max(0, max( buffedLvl() + RingOfSharpshooting.levelDamageBonus(Dungeon.hero) ));
+		} else {
+			return Math.max(0 , max( buffedLvl() ));
+		}
 	}
 	
 	@Override
@@ -95,6 +105,15 @@ abstract public class MissileWeapon extends Weapon {
 	
 	public int STRReq(int lvl){
 		return STRReq(tier, lvl) - 1; //1 less str than normal for their tier
+	}
+
+	//use the parent item if this has been thrown from a parent
+	public int buffedLvl(){
+		if (parent != null) {
+			return parent.buffedLvl();
+		} else {
+			return super.buffedLvl();
+		}
 	}
 	
 	@Override
@@ -145,6 +164,10 @@ abstract public class MissileWeapon extends Weapon {
 		if (container instanceof MagicalHolster) holster = true;
 		return super.collect(container);
 	}
+
+	public boolean isSimilar( Item item ) {
+		return level() == item.level() && getClass() == item.getClass();
+	}
 	
 	@Override
 	public int throwPos(Hero user, int dst) {
@@ -161,7 +184,9 @@ abstract public class MissileWeapon extends Weapon {
 			}
 		}
 
-		if (projecting && !Dungeon.level.solid[dst] && Dungeon.level.distance(user.pos, dst) <= 4){
+		if (projecting
+				&& (Dungeon.level.passable[dst] || Dungeon.level.avoid[dst] || Actor.findChar(dst) != null)
+				&& Dungeon.level.distance(user.pos, dst) <= Math.round(4 * Enchantment.genericProcChanceMultiplier(user))){
 			return dst;
 		} else {
 			return super.throwPos(user, dst);
@@ -169,12 +194,27 @@ abstract public class MissileWeapon extends Weapon {
 	}
 
 	@Override
-	public float accuracyFactor(Char owner) {
-		float accFactor = super.accuracyFactor(owner);
+	public float accuracyFactor(Char owner, Char target) {
+		float accFactor = super.accuracyFactor(owner, target);
 		if (owner instanceof Hero && owner.buff(Momentum.class) != null && owner.buff(Momentum.class).freerunning()){
 			accFactor *= 1f + 0.2f*((Hero) owner).pointsInTalent(Talent.PROJECTILE_MOMENTUM);
 		}
+
+		accFactor *= adjacentAccFactor(owner, target);
+
 		return accFactor;
+	}
+
+	protected float adjacentAccFactor(Char owner, Char target){
+		if (Dungeon.level.adjacent( owner.pos, target.pos )) {
+			if (owner instanceof Hero){
+				return (0.5f + 0.2f*((Hero) owner).pointsInTalent(Talent.POINT_BLANK));
+			} else {
+				return 0.5f;
+			}
+		} else {
+			return 1.5f;
+		}
 	}
 
 	@Override
@@ -187,8 +227,21 @@ abstract public class MissileWeapon extends Weapon {
 	protected void onThrow( int cell ) {
 		Char enemy = Actor.findChar( cell );
 		if (enemy == null || enemy == curUser) {
-				parent = null;
-				super.onThrow( cell );
+			parent = null;
+
+			//metamorphed seer shot logic
+			if (curUser.hasTalent(Talent.SEER_SHOT)
+					&& curUser.heroClass != HeroClass.HUNTRESS
+					&& curUser.buff(Talent.SeerShotCooldown.class) == null){
+				if (Actor.findChar(cell) == null) {
+					RevealedArea a = Buff.affect(curUser, RevealedArea.class, 5 * curUser.pointsInTalent(Talent.SEER_SHOT));
+					a.depth = Dungeon.depth;
+					a.pos = cell;
+					Buff.affect(curUser, Talent.SeerShotCooldown.class, 20f);
+				}
+			}
+
+			super.onThrow( cell );
 		} else {
 			if (!curUser.shoot( enemy, this )) {
 				rangedMiss( cell );
@@ -232,6 +285,11 @@ abstract public class MissileWeapon extends Weapon {
 		}
 		return this;
 	}
+
+	public String status() {
+		//show quantity even when it is 1
+		return Integer.toString( quantity );
+	}
 	
 	@Override
 	public float castDelay(Char user, int dst) {
@@ -242,7 +300,7 @@ abstract public class MissileWeapon extends Weapon {
 		decrementDurability();
 		if (durability > 0){
 			//attempt to stick the missile weapon to the enemy, just drop it if we can't.
-			if (sticky && enemy != null && enemy.isAlive() && enemy.alignment != Char.Alignment.ALLY){
+			if (sticky && enemy != null && enemy.isActive() && enemy.alignment != Char.Alignment.ALLY){
 				PinCushion p = Buff.affect(enemy, PinCushion.class);
 				if (p.target == enemy){
 					p.stick(this);
@@ -268,25 +326,34 @@ abstract public class MissileWeapon extends Weapon {
 	}
 	
 	public float durabilityPerUse(){
+		//classes that override durabilityPerUse can turn rounding off, to do their own rounding after more logic
+		return durabilityPerUse(true);
+	}
+
+	protected final float durabilityPerUse( boolean rounded){
 		float usages = baseUses * (float)(Math.pow(3, level()));
 
 		//+50%/75% durability
-		if (Dungeon.hero.hasTalent(Talent.DURABLE_PROJECTILES)){
+		if (Dungeon.hero != null && Dungeon.hero.hasTalent(Talent.DURABLE_PROJECTILES)){
 			usages *= 1.25f + (0.25f*Dungeon.hero.pointsInTalent(Talent.DURABLE_PROJECTILES));
 		}
 		if (holster) {
 			usages *= MagicalHolster.HOLSTER_DURABILITY_FACTOR;
 		}
-		
-		usages *= RingOfSharpshooting.durabilityMultiplier( Dungeon.hero );
-		
+
+		if (Dungeon.hero != null) usages *= RingOfSharpshooting.durabilityMultiplier( Dungeon.hero );
+
 		//at 100 uses, items just last forever.
 		if (usages >= 100f) return 0;
 
-		usages = Math.round(usages);
-		
-		//add a tiny amount to account for rounding error for calculations like 1/3
-		return (MAX_DURABILITY/usages) + 0.001f;
+		if (rounded){
+			usages = Math.round(usages);
+			//add a tiny amount to account for rounding error for calculations like 1/3
+			return (MAX_DURABILITY/usages) + 0.001f;
+		} else {
+			//rounding can be disabled for classes that override durability per use
+			return MAX_DURABILITY/usages;
+		}
 	}
 	
 	protected void decrementDurability(){
@@ -296,19 +363,22 @@ abstract public class MissileWeapon extends Weapon {
 			if (parent.durability <= parent.durabilityPerUse()){
 				durability = 0;
 				parent.durability = MAX_DURABILITY;
+				if (parent.durabilityPerUse() < 100f) {
+					GLog.n(Messages.get(this, "has_broken"));
+				}
 			} else {
 				parent.durability -= parent.durabilityPerUse();
 				if (parent.durability > 0 && parent.durability <= parent.durabilityPerUse()){
-					if (level() <= 0)GLog.w(Messages.get(this, "about_to_break"));
-					else             GLog.n(Messages.get(this, "about_to_break"));
+					GLog.w(Messages.get(this, "about_to_break"));
 				}
 			}
 			parent = null;
 		} else {
 			durability -= durabilityPerUse();
 			if (durability > 0 && durability <= durabilityPerUse()){
-				if (level() <= 0)GLog.w(Messages.get(this, "about_to_break"));
-				else             GLog.n(Messages.get(this, "about_to_break"));
+				GLog.w(Messages.get(this, "about_to_break"));
+			} else if (durabilityPerUse() < 100f && durability <= 0){
+				GLog.n(Messages.get(this, "has_broken"));
 			}
 		}
 	}
@@ -320,7 +390,7 @@ abstract public class MissileWeapon extends Weapon {
 		if (owner instanceof Hero) {
 			int exStr = ((Hero)owner).STR() - STRReq();
 			if (exStr > 0) {
-				damage += Random.IntRange( 0, exStr );
+				damage += Hero.heroDamageIntRange( 0, exStr );
 			}
 			if (owner.buff(Momentum.class) != null && owner.buff(Momentum.class).freerunning()) {
 				damage = Math.round(damage * (1f + 0.15f * ((Hero) owner).pointsInTalent(Talent.PROJECTILE_MOMENTUM)));
@@ -381,7 +451,7 @@ abstract public class MissileWeapon extends Weapon {
 	@Override
 	public String info() {
 
-		String info = desc();
+		String info = super.info();
 		
 		info += "\n\n" + Messages.get( MissileWeapon.class, "stats",
 				tier,
@@ -389,10 +459,12 @@ abstract public class MissileWeapon extends Weapon {
 				Math.round(augment.damageFactor(max())),
 				STRReq());
 
-		if (STRReq() > Dungeon.hero.STR()) {
-			info += " " + Messages.get(Weapon.class, "too_heavy");
-		} else if (Dungeon.hero.STR() > STRReq()){
-			info += " " + Messages.get(Weapon.class, "excess_str", Dungeon.hero.STR() - STRReq());
+		if (Dungeon.hero != null) {
+			if (STRReq() > Dungeon.hero.STR()) {
+				info += " " + Messages.get(Weapon.class, "too_heavy");
+			} else if (Dungeon.hero.STR() > STRReq()) {
+				info += " " + Messages.get(Weapon.class, "excess_str", Dungeon.hero.STR() - STRReq());
+			}
 		}
 
 		if (enchantment != null && (cursedKnown || !enchantment.curse())){

@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,7 @@ package com.shatteredpixel.shatteredpixeldungeon.actors.hero.abilities.mage;
 
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
+import com.shatteredpixel.shatteredpixeldungeon.actors.Char;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.FlavourBuff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Invisibility;
@@ -31,12 +32,15 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Talent;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.abilities.ArmorAbility;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.armor.ClassArmor;
+import com.shatteredpixel.shatteredpixeldungeon.items.trinkets.WondrousResin;
 import com.shatteredpixel.shatteredpixeldungeon.items.wands.CursedWand;
 import com.shatteredpixel.shatteredpixeldungeon.items.wands.Wand;
 import com.shatteredpixel.shatteredpixeldungeon.mechanics.Ballistica;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.ui.HeroIcon;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
+import com.watabou.noosa.Game;
+import com.watabou.noosa.tweeners.Delayer;
 import com.watabou.utils.Callback;
 import com.watabou.utils.Random;
 
@@ -67,7 +71,7 @@ public class WildMagic extends ArmorAbility {
 		ArrayList<Wand> wands = hero.belongings.getAllItems(Wand.class);
 		Random.shuffle(wands);
 
-		float chargeUsePerShot = (float)Math.pow(0.67f, hero.pointsInTalent(Talent.CONSERVED_MAGIC));
+		float chargeUsePerShot = 0.5f * (float)Math.pow(0.67f, hero.pointsInTalent(Talent.CONSERVED_MAGIC));
 
 		for (Wand w : wands.toArray(new Wand[0])){
 			if (w.curCharges < 1 && w.partialCharge < chargeUsePerShot){
@@ -88,7 +92,7 @@ public class WildMagic extends ArmorAbility {
 					seconds.remove(w);
 				}
 				if (totalCharge < 3*chargeUsePerShot
-					|| Random.Int(4) > Dungeon.hero.pointsInTalent(Talent.CONSERVED_MAGIC)){
+					|| Random.Int(4) >= Dungeon.hero.pointsInTalent(Talent.FIRE_EVERYTHING)){
 					thirds.remove(w);
 				}
 			}
@@ -124,49 +128,127 @@ public class WildMagic extends ArmorAbility {
 
 	public static class WildMagicTracker extends FlavourBuff{};
 
-	private void zapWand( ArrayList<Wand> wands, Hero hero, int target){
+	Actor wildMagicActor = null;
+
+	private void zapWand( ArrayList<Wand> wands, Hero hero, int cell){
 		Wand cur = wands.remove(0);
 
-		Ballistica aim = new Ballistica(hero.pos, target, cur.collisionProperties(target));
+		Ballistica aim = new Ballistica(hero.pos, cell, cur.collisionProperties(cell));
 
-		hero.sprite.zap(target);
+		hero.sprite.zap(cell);
 
-		if (!cur.cursed) {
-			cur.fx(aim, new Callback() {
-				@Override
-				public void call() {
-					cur.onZap(aim);
-					afterZap(cur, wands, hero, target);
-				}
-			});
-		} else {
-			CursedWand.cursedZap(cur,
-					hero,
-					new Ballistica(hero.pos, target, Ballistica.MAGIC_BOLT),
-					new Callback() {
-						@Override
-						public void call() {
-							afterZap(cur, wands, hero, target);
+		float startTime = Game.timeTotal;
+		if (cur.tryToZap(hero, cell)) {
+			if (!cur.cursed) {
+				cur.fx(aim, new Callback() {
+					@Override
+					public void call() {
+						cur.onZap(aim);
+						boolean alsoCursedZap = Random.Float() < WondrousResin.extraCurseEffectChance();
+						if (Game.timeTotal - startTime < 0.33f) {
+							hero.sprite.parent.add(new Delayer(0.33f - (Game.timeTotal - startTime)) {
+								@Override
+								protected void onComplete() {
+									if (alsoCursedZap){
+										WondrousResin.forcePositive = true;
+										CursedWand.cursedZap(cur,
+												hero,
+												new Ballistica(hero.pos, cell, Ballistica.MAGIC_BOLT),
+												new Callback() {
+													@Override
+													public void call() {
+														WondrousResin.forcePositive = false;
+														afterZap(cur, wands, hero, cell);
+													}
+												});
+									} else {
+										afterZap(cur, wands, hero, cell);
+									}
+								}
+							});
+						} else {
+							if (alsoCursedZap){
+								WondrousResin.forcePositive = true;
+								CursedWand.cursedZap(cur,
+										hero,
+										new Ballistica(hero.pos, cell, Ballistica.MAGIC_BOLT),
+										new Callback() {
+											@Override
+											public void call() {
+												WondrousResin.forcePositive = false;
+												afterZap(cur, wands, hero, cell);
+											}
+										});
+							} else {
+								afterZap(cur, wands, hero, cell);
+							}
 						}
-					});
+					}
+				});
+
+			} else {
+				CursedWand.cursedZap(cur,
+						hero,
+						new Ballistica(hero.pos, cell, Ballistica.MAGIC_BOLT),
+						new Callback() {
+							@Override
+							public void call() {
+								if (Game.timeTotal - startTime < 0.33f) {
+									hero.sprite.parent.add(new Delayer(0.33f - (Game.timeTotal - startTime)) {
+										@Override
+										protected void onComplete() {
+											afterZap(cur, wands, hero, cell);
+										}
+									});
+								} else {
+									afterZap(cur, wands, hero, cell);
+								}
+							}
+						});
+			}
+		} else {
+			afterZap(cur, wands, hero, cell);
 		}
 	}
 
 	private void afterZap( Wand cur, ArrayList<Wand> wands, Hero hero, int target){
-		cur.partialCharge -= (float) Math.pow(0.67f, hero.pointsInTalent(Talent.CONSERVED_MAGIC));
+		cur.partialCharge -= 0.5f * (float)Math.pow(0.67f, hero.pointsInTalent(Talent.CONSERVED_MAGIC));
 		if (cur.partialCharge < 0) {
 			cur.partialCharge++;
 			cur.curCharges--;
 		}
+		if (wildMagicActor != null){
+			wildMagicActor.next();
+			wildMagicActor = null;
+		}
+
+		Char ch = Actor.findChar(target);
 		if (!wands.isEmpty() && hero.isAlive()) {
-			zapWand(wands, hero, target);
+			Actor.add(new Actor() {
+				{
+					actPriority = VFX_PRIO-1;
+				}
+
+				@Override
+				protected boolean act() {
+					wildMagicActor = this;
+					zapWand(wands, hero, ch == null ? target : ch.pos);
+					Actor.remove(this);
+					return false;
+				}
+			});
+			hero.next();
 		} else {
 			if (hero.buff(WildMagicTracker.class) != null) {
 				hero.buff(WildMagicTracker.class).detach();
 			}
 			Item.updateQuickslot();
 			Invisibility.dispel();
-			hero.spendAndNext(Actor.TICK);
+			if (Random.Int(4) >= hero.pointsInTalent(Talent.CONSERVED_MAGIC)) {
+				hero.spendAndNext(Actor.TICK);
+			} else {
+				hero.next();
+			}
 		}
 	}
 

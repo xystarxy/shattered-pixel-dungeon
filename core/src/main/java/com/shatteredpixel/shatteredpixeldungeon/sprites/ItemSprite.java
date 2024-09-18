@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,12 +30,15 @@ import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
+import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap;
 import com.watabou.gltextures.SmartTexture;
 import com.watabou.gltextures.TextureCache;
 import com.watabou.glwrap.Matrix;
 import com.watabou.glwrap.Vertexbuffer;
+import com.watabou.noosa.Camera;
 import com.watabou.noosa.Game;
+import com.watabou.noosa.Image;
 import com.watabou.noosa.MovieClip;
 import com.watabou.noosa.NoosaScript;
 import com.watabou.noosa.audio.Sample;
@@ -104,6 +107,7 @@ public class ItemSprite extends MovieClip {
 		this.heap = heap;
 		view(heap);
 		renderShadow = true;
+		visible = heap.seen;
 		place(heap.pos);
 	}
 	
@@ -122,6 +126,16 @@ public class ItemSprite extends MovieClip {
 		}
 	}
 
+	@Override
+	public void copy(Image other) {
+		super.copy(other);
+
+		if (other instanceof ItemSprite && ((ItemSprite) other).glowing != null){
+			glow(((ItemSprite) other).glowing);
+		}
+
+	}
+
 	public void visible(boolean value){
 		this.visible = value;
 		if (emitter != null && !visible){
@@ -134,8 +148,8 @@ public class ItemSprite extends MovieClip {
 		final int csize = DungeonTilemap.SIZE;
 		
 		return new PointF(
-			cell % Dungeon.level.width() * csize + (csize - width()) * 0.5f,
-			cell / Dungeon.level.width() * csize + (csize - height()) - csize * perspectiveRaise
+				PixelScene.align(Camera.main, ((cell % Dungeon.level.width()) + 0.5f) * csize - width() * 0.5f),
+				PixelScene.align(Camera.main, ((cell / Dungeon.level.width()) + 1.0f) * csize - height() - csize * perspectiveRaise)
 		);
 	}
 	

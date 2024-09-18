@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,24 +30,24 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Blindness;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Buff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.CounterBuff;
 import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Cripple;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.Invisibility;
+import com.shatteredpixel.shatteredpixeldungeon.actors.buffs.MagicImmune;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Talent;
+import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mimic;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Mob;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.npcs.Shopkeeper;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Surprise;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
 import com.shatteredpixel.shatteredpixeldungeon.items.rings.RingOfEnergy;
-import com.shatteredpixel.shatteredpixeldungeon.mechanics.Ballistica;
+import com.shatteredpixel.shatteredpixeldungeon.journal.Catalog;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.CellSelector;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
-import com.shatteredpixel.shatteredpixeldungeon.utils.BArray;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
 import com.watabou.noosa.audio.Sample;
-import com.watabou.utils.Bundle;
 import com.watabou.utils.Callback;
-import com.watabou.utils.PathFinder;
 import com.watabou.utils.Random;
 
 import java.util.ArrayList;
@@ -71,13 +71,21 @@ public class MasterThievesArmband extends Artifact {
 	@Override
 	public ArrayList<String> actions(Hero hero) {
 		ArrayList<String> actions = super.actions(hero);
-		if (isEquipped(hero) && charge > 0 && !cursed) actions.add(AC_STEAL);
+		if (isEquipped(hero)
+				&& charge > 0
+				&& hero.buff(MagicImmune.class) == null
+				&& !cursed) {
+			actions.add(AC_STEAL);
+		}
 		return actions;
 	}
 
 	@Override
 	public void execute(Hero hero, String action) {
 		super.execute(hero, action);
+
+		if (hero.buff(MagicImmune.class) != null) return;
+
 		if (action.equals(AC_STEAL)){
 
 			curUser = hero;
@@ -115,7 +123,8 @@ public class MasterThievesArmband extends Artifact {
 				Char ch = Actor.findChar(target);
 				if (ch instanceof Shopkeeper){
 					GLog.w( Messages.get(MasterThievesArmband.class, "steal_shopkeeper") );
-				} else if (ch.alignment != Char.Alignment.ENEMY){
+				} else if (ch.alignment != Char.Alignment.ENEMY
+						&& !(ch instanceof Mimic && ch.alignment == Char.Alignment.NEUTRAL)){
 					GLog.w( Messages.get(MasterThievesArmband.class, "no_target") );
 				} else if (ch instanceof Mob) {
 					curUser.busy();
@@ -128,6 +137,8 @@ public class MasterThievesArmband extends Artifact {
 							float lootMultiplier = 1f + 0.1f*level();
 							int debuffDuration = 3 + level()/2;
 
+							Invisibility.dispel(curUser);
+
 							if (surprised){
 								lootMultiplier += 0.5f;
 								Surprise.hit(ch);
@@ -137,7 +148,14 @@ public class MasterThievesArmband extends Artifact {
 							}
 
 							float lootChance = ((Mob) ch).lootChance() * lootMultiplier;
-							if (ch.buff(StolenTracker.class) != null || lootChance == 0){
+
+							if (Dungeon.hero.lvl > ((Mob) ch).maxLvl + 2) {
+								lootChance = 0;
+							} else if (ch.buff(StolenTracker.class) != null){
+								lootChance = 0;
+							}
+
+							if (lootChance == 0){
 								GLog.w(Messages.get(MasterThievesArmband.class, "no_steal"));
 							} else if (Random.Float() <= lootChance){
 								Item loot = ((Mob) ch).createLoot();
@@ -167,6 +185,7 @@ public class MasterThievesArmband extends Artifact {
 							Talent.onArtifactUsed(Dungeon.hero);
 							while (exp >= (10 + Math.round(3.33f * level())) && level() < levelCap) {
 								exp -= 10 + Math.round(3.33f * level());
+								Catalog.countUse(MasterThievesArmband.class);
 								GLog.p(Messages.get(MasterThievesArmband.class, "level_up"));
 								upgrade();
 							}
@@ -199,15 +218,19 @@ public class MasterThievesArmband extends Artifact {
 	
 	@Override
 	public void charge(Hero target, float amount) {
-		partialCharge += 0.1f * amount;
-		partialCharge = Math.min(partialCharge, chargeCap - charge);
-		while (partialCharge >= 1f){
-			charge++;
-			partialCharge--;
-			updateQuickslot();
-			if (charge == chargeCap){
-				GLog.p( Messages.get(MasterThievesArmband.class, "full") );
+		if (cursed || target.buff(MagicImmune.class) != null) return;
+		if (charge < chargeCap) {
+			partialCharge += 0.1f * amount;
+			while (partialCharge >= 1f) {
+				charge++;
+				partialCharge--;
 			}
+			if (charge >= chargeCap) {
+				GLog.p(Messages.get(MasterThievesArmband.class, "full"));
+				partialCharge = 0;
+				charge = chargeCap;
+			}
+			updateQuickslot();
 		}
 	}
 
@@ -232,15 +255,6 @@ public class MasterThievesArmband extends Artifact {
 		return desc;
 	}
 
-	@Override
-	public void restoreFromBundle(Bundle bundle) {
-		super.restoreFromBundle(bundle);
-		//conversion for old armband on pre-1.2.0 saves
-		if (exp > Math.round(10 + level()*3.33f)){
-			exp = 0;
-		}
-	}
-
 	public class Thievery extends ArtifactBuff {
 
 		@Override
@@ -254,10 +268,11 @@ public class MasterThievesArmband extends Artifact {
 		}
 
 		public void gainCharge(float levelPortion) {
-			if (cursed) return;
+			if (cursed || target.buff(MagicImmune.class) != null) return;
 
 			if (charge < chargeCap){
 				float chargeGain = 3f * levelPortion;
+				chargeGain *= RingOfEnergy.artifactChargeMultiplier(target);
 
 				partialCharge += chargeGain;
 				while (partialCharge > 1f){
@@ -289,9 +304,11 @@ public class MasterThievesArmband extends Artifact {
 				Talent.onArtifactUsed(Dungeon.hero);
 				while (exp >= (10 + Math.round(3.33f * level())) && level() < levelCap) {
 					exp -= 10 + Math.round(3.33f * level());
+					Catalog.countUse(MasterThievesArmband.class);
 					GLog.p(Messages.get(MasterThievesArmband.class, "level_up"));
 					upgrade();
 				}
+				updateQuickslot();
 				return true;
 			}
 		}

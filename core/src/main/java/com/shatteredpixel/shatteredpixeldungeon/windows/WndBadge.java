@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,11 +26,13 @@ import com.shatteredpixel.shatteredpixeldungeon.effects.BadgeBanner;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.PixelScene;
 import com.shatteredpixel.shatteredpixeldungeon.ui.RenderedTextBlock;
 import com.shatteredpixel.shatteredpixeldungeon.ui.Window;
+import com.watabou.input.PointerEvent;
 import com.watabou.noosa.Image;
+import com.watabou.noosa.PointerArea;
 
 public class WndBadge extends Window {
 	
-	private static final int WIDTH = 120;
+	private static final int MAX_WIDTH = 125;
 	private static final int MARGIN = 4;
 	
 	public WndBadge( Badges.Badge badge, boolean unlocked ) {
@@ -43,14 +45,26 @@ public class WndBadge extends Window {
 		add( icon );
 
 		RenderedTextBlock title = PixelScene.renderTextBlock( badge.title(), 9 );
+		title.maxWidth(MAX_WIDTH - MARGIN * 2);
+		title.align(RenderedTextBlock.CENTER_ALIGN);
 		title.hardlight(TITLE_COLOR);
 		if (!unlocked) title.hardlight( 0x888822 );
 		add(title);
 
-		RenderedTextBlock info = PixelScene.renderTextBlock( badge.desc(), 6 );
-		info.maxWidth(WIDTH - MARGIN * 2);
+		String desc = badge.desc();
+		String unlock = Badges.showCompletionProgress(badge);
+
+		if (unlock != null){
+			desc += unlock;
+		}
+
+		RenderedTextBlock info = PixelScene.renderTextBlock( desc, 6 );
+		info.maxWidth(MAX_WIDTH - MARGIN * 2);
 		info.align(RenderedTextBlock.CENTER_ALIGN);
-		if (!unlocked) info.hardlight( 0x888888 );
+		if (!unlocked) {
+			info.hardlight( 0x888888 );
+			info.setHightlighting( true, 0x888822 );
+		}
 		add(info);
 		
 		float w = Math.max( icon.width(), Math.max(title.width(), info.width()) ) + MARGIN * 2;
@@ -67,5 +81,14 @@ public class WndBadge extends Window {
 		resize( (int)w, (int)(info.bottom() + MARGIN) );
 		
 		if (unlocked) BadgeBanner.highlight( icon, badge.image );
+
+		PointerArea blocker = new PointerArea( 0, 0, PixelScene.uiCamera.width, PixelScene.uiCamera.height ) {
+			@Override
+			protected void onClick( PointerEvent event ) {
+				onBackPressed();
+			}
+		};
+		blocker.camera = PixelScene.uiCamera;
+		add(blocker);
 	}
 }

@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -82,6 +82,8 @@ public class FileUtils {
 		for (FileHandle file : dir.list()){
 			if (file.isDirectory()){
 				foundTemp = cleanTempFiles(dirName + file.name()) || foundTemp;
+			} else if (file.length() == 0) {
+				file.delete();
 			} else {
 				if (file.name().endsWith(".tmp")){
 					FileHandle temp = file;
@@ -136,7 +138,7 @@ public class FileUtils {
 
 	//replaces a file with junk data, for as many bytes as given
 	//This is helpful as some cloud sync systems do not persist deleted, empty, or zeroed files
-	public static void zeroFile( String name, int bytes ){
+	public static void overwriteFile( String name, int bytes ){
 		byte[] data = new byte[bytes];
 		Arrays.fill(data, (byte)1);
 		getFileHandle( name ).writeBytes(data, false);
@@ -176,6 +178,9 @@ public class FileUtils {
 	public static Bundle bundleFromFile( String fileName ) throws IOException{
 		try {
 			FileHandle file = getFileHandle( fileName );
+			if (!file.exists() || file.isDirectory() || file.length() == 0) {
+				throw new IOException("file does not exist!");
+			}
 			return bundleFromStream(file.read());
 		} catch (GdxRuntimeException e){
 			//game classes expect an IO exception, so wrap the GDX exception in that

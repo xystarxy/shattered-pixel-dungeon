@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 package com.shatteredpixel.shatteredpixeldungeon.levels.rooms.special;
 
 import com.shatteredpixel.shatteredpixeldungeon.Assets;
+import com.shatteredpixel.shatteredpixeldungeon.Badges;
 import com.shatteredpixel.shatteredpixeldungeon.Challenges;
 import com.shatteredpixel.shatteredpixeldungeon.Dungeon;
 import com.shatteredpixel.shatteredpixeldungeon.actors.Actor;
@@ -34,12 +35,16 @@ import com.shatteredpixel.shatteredpixeldungeon.effects.MagicMissile;
 import com.shatteredpixel.shatteredpixeldungeon.items.Generator;
 import com.shatteredpixel.shatteredpixeldungeon.items.Heap;
 import com.shatteredpixel.shatteredpixeldungeon.items.Item;
+import com.shatteredpixel.shatteredpixeldungeon.items.armor.Armor;
 import com.shatteredpixel.shatteredpixeldungeon.items.potions.PotionOfHaste;
+import com.shatteredpixel.shatteredpixeldungeon.items.weapon.Weapon;
+import com.shatteredpixel.shatteredpixeldungeon.journal.Bestiary;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Level;
 import com.shatteredpixel.shatteredpixeldungeon.levels.Terrain;
 import com.shatteredpixel.shatteredpixeldungeon.levels.painters.Painter;
 import com.shatteredpixel.shatteredpixeldungeon.levels.rooms.standard.EmptyRoom;
 import com.shatteredpixel.shatteredpixeldungeon.messages.Messages;
+import com.shatteredpixel.shatteredpixeldungeon.sprites.CharSprite;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.MobSprite;
 import com.shatteredpixel.shatteredpixeldungeon.tiles.DungeonTilemap;
 import com.shatteredpixel.shatteredpixeldungeon.utils.GLog;
@@ -156,7 +161,7 @@ public class SentryRoom extends SpecialRoom {
 		sentry.pos = level.pointToCell(sentryPos);
 		sentry.room = new EmptyRoom();
 		sentry.room.set((Rect)this);
-		sentry.initialChargeDelay = dangerDist / 3f + 0.1f;
+		sentry.initialChargeDelay = sentry.curChargeDelay = dangerDist / 3f + 0.1f;
 		level.mobs.add( sentry );
 
 		Painter.set(level, treasurePos, Terrain.PEDESTAL);
@@ -179,13 +184,19 @@ public class SentryRoom extends SpecialRoom {
 		}
 
 		//1 floor set higher in probability, never cursed
-		do {
-			if (Random.Int(2) == 0) {
-				prize = Generator.randomWeapon((Dungeon.depth / 5) + 1);
-			} else {
-				prize = Generator.randomArmor((Dungeon.depth / 5) + 1);
+		//1 floor set higher in probability, never cursed
+		if (Random.Int(2) == 0) {
+			prize = Generator.randomWeapon((Dungeon.depth / 5) + 1);
+			if (((Weapon)prize).hasCurseEnchant()){
+				((Weapon) prize).enchant(null);
 			}
-		} while (prize.cursed || Challenges.isItemBlocked(prize));
+		} else {
+			prize = Generator.randomArmor((Dungeon.depth / 5) + 1);
+			if (((Armor)prize).hasCurseGlyph()){
+				((Armor) prize).inscribe(null);
+			}
+		}
+		prize.cursed = false;
 		prize.cursedKnown = true;
 
 		//33% chance for an extra update.
@@ -226,6 +237,10 @@ public class SentryRoom extends SpecialRoom {
 
 		@Override
 		protected boolean act() {
+			if (Dungeon.level.heroFOV[pos]){
+				Bestiary.setSeen(getClass());
+			}
+
 			if (fieldOfView == null || fieldOfView.length != Dungeon.level.length()){
 				fieldOfView = new boolean[Dungeon.level.length()];
 			}
@@ -238,7 +253,8 @@ public class SentryRoom extends SpecialRoom {
 			if (Dungeon.hero != null){
 				if (fieldOfView[Dungeon.hero.pos]
 						&& Dungeon.level.map[Dungeon.hero.pos] == Terrain.EMPTY_SP
-						&& room.inside(Dungeon.level.cellToPoint(Dungeon.hero.pos))){
+						&& room.inside(Dungeon.level.cellToPoint(Dungeon.hero.pos))
+						&& !Dungeon.hero.belongings.lostInventory()){
 
 					if (curChargeDelay > 0.001f){ //helps prevent rounding errors
 						if (curChargeDelay == initialChargeDelay) {
@@ -273,11 +289,21 @@ public class SentryRoom extends SpecialRoom {
 		}
 
 		public void onZapComplete(){
-			Dungeon.hero.damage(Random.NormalIntRange(2+Dungeon.depth/2, 4+Dungeon.depth), new Eye.DeathGaze());
-			if (!Dungeon.hero.isAlive()){
-				GLog.n( Messages.capitalize(Messages.get(Char.class, "kill", name())) );
-				Dungeon.fail( getClass() );
+			if (hit(this, Dungeon.hero, true)) {
+				Dungeon.hero.damage(Random.NormalIntRange(2 + Dungeon.depth / 2, 4 + Dungeon.depth), new Eye.DeathGaze());
+				if (!Dungeon.hero.isAlive()) {
+					Badges.validateDeathFromEnemyMagic();
+					Dungeon.fail(this);
+					GLog.n(Messages.capitalize(Messages.get(Char.class, "kill", name())));
+				}
+			} else {
+				Dungeon.hero.sprite.showStatus( CharSprite.NEUTRAL,  Dungeon.hero.defenseVerb() );
 			}
+		}
+
+		@Override
+		public int attackSkill(Char target) {
+			return 20 + Dungeon.depth * 2;
 		}
 
 		@Override
@@ -287,10 +313,12 @@ public class SentryRoom extends SpecialRoom {
 
 		@Override
 		public void damage( int dmg, Object src ) {
+			//do nothing
 		}
 
 		@Override
-		public void add( Buff buff ) {
+		public boolean add( Buff buff ) {
+			return false;
 		}
 
 		@Override
@@ -404,6 +432,11 @@ public class SentryRoom extends SpecialRoom {
 		public void place(int cell) {
 			super.place(cell);
 			baseY = y;
+		}
+
+		@Override
+		public void turnTo(int from, int to) {
+			//do nothing
 		}
 
 		@Override

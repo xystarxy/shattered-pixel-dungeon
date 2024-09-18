@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,12 +21,12 @@
 
 package com.watabou.input;
 
-import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.InputAdapter;
 import com.badlogic.gdx.InputMultiplexer;
 import com.badlogic.gdx.InputProcessor;
 import com.watabou.noosa.Game;
+import com.watabou.utils.PointF;
 
 public class InputHandler extends InputAdapter {
 
@@ -76,6 +76,20 @@ public class InputHandler extends InputAdapter {
 	public void removeInputProcessor(InputProcessor processor){
 		multiplexer.removeProcessor(processor);
 	}
+
+	public void emulateTouch(int id, int button, boolean down){
+		PointF hoverPos = PointerEvent.currentHoverPos();
+		if (down){
+			multiplexer.touchDown((int)hoverPos.x, (int)hoverPos.y, id, button);
+		} else {
+			multiplexer.touchUp((int)hoverPos.x, (int)hoverPos.y, id, button);
+		}
+	}
+
+	public void emulateDrag(int id){
+		PointF hoverPos = PointerEvent.currentHoverPos();
+		multiplexer.touchDragged((int)hoverPos.x, (int)hoverPos.y, id);
+	}
 	
 	public void processAllEvents(){
 		PointerEvent.processPointerEvents();
@@ -89,27 +103,57 @@ public class InputHandler extends InputAdapter {
 	
 	@Override
 	public synchronized boolean touchDown(int screenX, int screenY, int pointer, int button) {
-		ControllerHandler.setControllerPointer(false);
-		Gdx.input.setOnscreenKeyboardVisible(false); //in-game events never need keyboard, so hide it
-		PointerEvent.addPointerEvent(new PointerEvent(screenX, screenY, pointer, PointerEvent.Type.DOWN, button));
+		if (screenX < 0 || screenX > Game.width || screenY < 0 || screenY > Game.height){
+			return true;
+		}
+
+		if (pointer != ControllerHandler.CONTROLLER_POINTER_ID) {
+			ControllerHandler.setControllerPointer(false);
+			ControllerHandler.controllerActive = false;
+		}
+
+		if (button >= 3 && KeyBindings.isKeyBound( button + 1000 )) {
+			KeyEvent.addKeyEvent( new KeyEvent( button + 1000, true ) );
+		} else if (button < 3) {
+			PointerEvent.addPointerEvent(new PointerEvent(screenX, screenY, pointer, PointerEvent.Type.DOWN, button));
+		}
 		return true;
 	}
 	
 	@Override
 	public synchronized boolean touchUp(int screenX, int screenY, int pointer, int button) {
-		PointerEvent.addPointerEvent(new PointerEvent(screenX, screenY, pointer, PointerEvent.Type.UP, button));
+
+		if (button >= 3 && KeyBindings.isKeyBound( button + 1000 )) {
+			KeyEvent.addKeyEvent( new KeyEvent( button + 1000, false ) );
+		} else if (button < 3) {
+			PointerEvent.addPointerEvent(new PointerEvent(screenX, screenY, pointer, PointerEvent.Type.UP, button));
+		}
 		return true;
 	}
-	
+
+	@Override
+	public boolean touchCancelled(int screenX, int screenY, int pointer, int button) {
+		//currently emulating functionality from libGDX 1.11.0, do we keep this?
+		//in particular this is probably a more graceful way to handle things like system swipes on iOS
+		//whereas previously they generated garbage inputs sometimes
+		//which were then fixed in v2.2.2
+		return touchUp(screenX, screenY, pointer, button);
+	}
+
 	@Override
 	public synchronized boolean touchDragged(int screenX, int screenY, int pointer) {
-		PointerEvent.addPointerEvent(new PointerEvent(screenX, screenY, pointer, PointerEvent.Type.DOWN));
+		PointerEvent.addIfExisting(new PointerEvent(screenX, screenY, pointer, PointerEvent.Type.DOWN));
 		return true;
 	}
 	
 	@Override
 	public boolean mouseMoved(int screenX, int screenY) {
-		ControllerHandler.setControllerPointer(false);
+		if (ControllerHandler.controllerPointerActive()) {
+			ControllerHandler.setControllerPointer(false);
+			PointF hover = ControllerHandler.getControllerPointerPos();
+			screenX = (int)hover.x;
+			screenY = (int)hover.y;
+		}
 		PointerEvent.addPointerEvent(new PointerEvent(screenX, screenY, -1, PointerEvent.Type.HOVER));
 		return true;
 	}

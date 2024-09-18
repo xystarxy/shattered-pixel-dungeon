@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -72,8 +72,14 @@ public class Freezing extends Blob {
 				Buff.affect(ch, Frost.class, 2f);
 			} else {
 				Chill chill = ch.buff(Chill.class);
-				if (chill == null || chill.cooldown() <= Chill.DURATION - 3f) {
-					Buff.affect(ch, Chill.class, Dungeon.level.water[cell] ? 5f : 3f);
+				float turnsToAdd = Dungeon.level.water[cell] ? 5f : 3f;
+				if (chill != null){
+					float chillToCap = Chill.DURATION - chill.cooldown();
+					chillToCap /= ch.resist(Chill.class); //account for resistance to chill
+					turnsToAdd = Math.min(turnsToAdd, chillToCap);
+				}
+				if (turnsToAdd > 0f) {
+					Buff.affect(ch, Chill.class, turnsToAdd);
 				}
 				if (chill != null
 						&& chill.cooldown() >= Chill.DURATION &&

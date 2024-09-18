@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -160,7 +160,15 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 
 		ch.updateSpriteState();
 	}
-	
+
+	@Override
+	public void destroy() {
+		super.destroy();
+		if (ch != null && ch.sprite == this){
+			ch.sprite = null;
+		}
+	}
+
 	//used for just updating a sprite based on a given character, not linking them or placing in the game
 	public void linkVisuals( Char ch ){
 		//do nothin by default
@@ -181,6 +189,10 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 	}
 	
 	public void showStatus( int color, String text, Object... args ) {
+		showStatusWithIcon(color, text, FloatingText.NO_ICON, args);
+	}
+
+	public void showStatusWithIcon( int color, String text, int icon, Object... args ) {
 		if (visible) {
 			if (args.length > 0) {
 				text = Messages.format( text, args );
@@ -188,9 +200,9 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 			float x = destinationCenter().x;
 			float y = destinationCenter().y - height()/2f;
 			if (ch != null) {
-				FloatingText.show( x, y, ch.pos, text, color );
+				FloatingText.show( x, y, ch.pos, text, color, icon, true );
 			} else {
-				FloatingText.show( x, y, text, color );
+				FloatingText.show( x, y, -1, text, color, icon, true );
 			}
 		}
 	}
@@ -237,35 +249,33 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 	}
 	
 	public void attack( int cell ) {
-		turnTo( ch.pos, cell );
-		play( attack );
+		attack( cell, null );
 	}
 	
-	public void attack( int cell, Callback callback ) {
+	public synchronized void attack( int cell, Callback callback ) {
 		animCallback = callback;
 		turnTo( ch.pos, cell );
 		play( attack );
 	}
 	
 	public void operate( int cell ) {
-		turnTo( ch.pos, cell );
-		play( operate );
+		operate( cell, null );
 	}
 	
-	public void operate( int cell, Callback callback ) {
+	public synchronized void operate( int cell, Callback callback ) {
 		animCallback = callback;
 		turnTo( ch.pos, cell );
 		play( operate );
 	}
 	
 	public void zap( int cell ) {
-		turnTo( ch.pos, cell );
-		play( zap );
+		zap( cell, null );
 	}
 	
-	public void zap( int cell, Callback callback ) {
+	public synchronized void zap( int cell, Callback callback ) {
 		animCallback = callback;
-		zap( cell );
+		turnTo( ch.pos, cell );
+		play( zap );
 	}
 	
 	public void turnTo( int from, int to ) {
@@ -280,10 +290,10 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 
 	public void jump( int from, int to, Callback callback ) {
 		float distance = Math.max( 1f, Dungeon.level.trueDistance( from, to ));
-		jump( from, to, callback, distance * 2, distance * 0.1f );
+		jump( from, to, distance * 2, distance * 0.1f, callback );
 	}
 
-	public void jump( int from, int to, Callback callback, float height, float duration ) {
+	public void jump( int from, int to, float height, float duration,  Callback callback ) {
 		jumpCallback = callback;
 
 		jumpTweener = new JumpTweener( this, worldToCamera( to ), height, duration );
@@ -295,6 +305,7 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 
 	public void die() {
 		sleeping = false;
+		remove( State.PARALYSED );
 		play( die );
 
 		hideEmo();
@@ -393,7 +404,10 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 				healing.pour(Speck.factory(Speck.HEALING), 0.5f);
 				break;
 			case SHIELDED:
-				GameScene.effect( shield = new ShieldHalo( this ));
+				if (shield != null) {
+					shield.killAndErase();
+				}
+				GameScene.effect(shield = new ShieldHalo(this));
 				break;
 			case HEARTS:
 				hearts = emitter();
@@ -484,6 +498,7 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 		aura = new Flare(5, size);
 		aura.angularSpeed = 90;
 		aura.color(color, true);
+		aura.visible = visible;
 
 		if (parent != null) {
 			aura.show(this, 0);
@@ -704,6 +719,7 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 			if (jumpCallback != null) {
 				jumpCallback.call();
 			}
+			GameScene.sortMobSprites();
 
 		} else if (tweener == motion) {
 
@@ -714,6 +730,7 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 				motion = null;
 				ch.onMotionComplete();
 
+				GameScene.sortMobSprites();
 				notifyAll();
 			}
 
@@ -721,7 +738,7 @@ public class CharSprite extends MovieClip implements Tweener.Listener, MovieClip
 	}
 
 	@Override
-	public void onComplete( Animation anim ) {
+	public synchronized void onComplete( Animation anim ) {
 		
 		if (animCallback != null) {
 			Callback executing = animCallback;

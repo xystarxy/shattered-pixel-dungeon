@@ -3,7 +3,7 @@
  * Copyright (C) 2012-2015 Oleg Dolya
  *
  * Shattered Pixel Dungeon
- * Copyright (C) 2014-2022 Evan Debenham
+ * Copyright (C) 2014-2024 Evan Debenham
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,7 @@ import com.shatteredpixel.shatteredpixeldungeon.actors.hero.Hero;
 import com.shatteredpixel.shatteredpixeldungeon.actors.mobs.Bee;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Pushing;
 import com.shatteredpixel.shatteredpixeldungeon.effects.Splash;
+import com.shatteredpixel.shatteredpixeldungeon.journal.Catalog;
 import com.shatteredpixel.shatteredpixeldungeon.scenes.GameScene;
 import com.shatteredpixel.shatteredpixeldungeon.sprites.ItemSpriteSheet;
 import com.watabou.noosa.audio.Sample;
@@ -68,6 +69,7 @@ public class Honeypot extends Item {
 			hero.sprite.zap( hero.pos );
 			
 			detach( hero.belongings.backpack );
+			Catalog.countUse(getClass());
 
 			Item item = shatter( hero, hero.pos );
 			if (!item.collect()){
@@ -87,6 +89,7 @@ public class Honeypot extends Item {
 		if (Dungeon.level.pit[cell]) {
 			super.onThrow( cell );
 		} else {
+			Catalog.countUse(getClass());
 			Dungeon.level.drop(shatter( null, cell ), cell);
 		}
 	}
@@ -114,14 +117,14 @@ public class Honeypot extends Item {
 		
 		if (newPos != -1) {
 			Bee bee = new Bee();
-			bee.spawn( Dungeon.depth );
+			bee.spawn( Dungeon.scalingDepth() );
 			bee.setPotInfo( pos, owner );
 			bee.HP = bee.HT;
 			bee.pos = newPos;
 			
 			GameScene.add( bee );
-			Actor.addDelayed( new Pushing( bee, pos, newPos ), -1f );
-			
+			if (newPos != pos) Actor.add( new Pushing( bee, pos, newPos ) );
+
 			bee.sprite.alpha( 0 );
 			bee.sprite.parent.add( new AlphaTweener( bee.sprite, 1, 0.15f ) );
 			
@@ -186,6 +189,12 @@ public class Honeypot extends Item {
 		public void dropPot( Char holder, int dropPos ){
 			for (Bee bee : findBees(holder)){
 				updateBee(bee, dropPos, null);
+			}
+		}
+
+		public void movePot( int oldpos, int movePos){
+			for (Bee bee : findBees(oldpos)){
+				updateBee(bee, movePos, null);
 			}
 		}
 
